@@ -37,7 +37,7 @@ contract ElyrionIdentityTest is Test {
         id.register("ipfs://a");
 
         vm.prank(bob);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(ElyrionIdentity.NotAgentOwner.selector));
         id.setAgentURI(1, "ipfs://evil");
 
         vm.expectEmit(true, false, false, true);

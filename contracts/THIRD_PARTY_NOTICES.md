@@ -28,3 +28,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## OpenZeppelin Contracts and forge-std
+
+OpenZeppelin Contracts v5.1.0 (MIT, https://github.com/OpenZeppelin/openzeppelin-contracts)
+and forge-std (MIT/Apache-2.0, https://github.com/foundry-rs/forge-std) are vendored
+unmodified under `contracts/lib`. Their license files are included alongside the sources.
