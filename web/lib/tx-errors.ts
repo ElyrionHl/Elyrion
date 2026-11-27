@@ -78,3 +78,15 @@ export function humanizeError(err: unknown, overrides: Record<string, string> = 
   const short = first ? str(first.shortMessage) || str(first.message).split("\n")[0] : "";
   return short ? `Transaction failed: ${short}` : "Something went wrong. Please try again.";
 }
+
+export const MSG_CHECK_EXPLORER = "Check the transaction on the explorer before retrying.";
+
+/**
+ * Error text for a failed registration. When the transaction was sent but its outcome is unknown (the receipt or
+ * the Registered event could not be read), retrying could register the agent twice, so the form stays locked and
+ * the message points to the explorer.
+ */
+export function registrationError(err: unknown, outcomeUnknown: boolean): string {
+  const base = humanizeError(err);
+  return outcomeUnknown ? `${base} ${MSG_CHECK_EXPLORER}` : base;
+}

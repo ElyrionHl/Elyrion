@@ -20,7 +20,7 @@ import {
 import { identityAbi } from "@/lib/abi/ElyrionIdentity";
 import { poolAbi } from "@/lib/abi/ElyrionPool";
 import { elysium } from "@/lib/chain";
-import { humanizeError, MSG_NOT_CONFIGURED, MSG_WRONG_CHAIN } from "@/lib/tx-errors";
+import { humanizeError, MSG_NOT_CONFIGURED, MSG_WRONG_CHAIN, registrationError } from "@/lib/tx-errors";
 
 /** $5 starter line (USDC, 6 decimals). */
 export const STARTER_LINE = 5_000_000n;
@@ -84,6 +84,8 @@ export function RegisterForm({ identity, pool }: { identity?: Address; pool?: Ad
   const [agentId, setAgentId] = useState<bigint | null>(null);
   const [lineHash, setLineHash] = useState<Hash | null>(null);
   const [lineDone, setLineDone] = useState(false);
+  /** A registration tx was sent but its outcome is unknown: submitting again could register the agent twice. */
+  const [regUnknown, setRegUnknown] = useState(false);
 
   const configured = !!identity && !!pool;
   const errors: RegistrationErrors = validateRegistration(values);
@@ -116,7 +118,9 @@ export function RegisterForm({ identity, pool }: { identity?: Address; pool?: Ad
   async function onRegister(e: FormEvent) {
     e.preventDefault();
     setSubmitted(true);
-    if (Object.keys(errors).length > 0 || busy || !guard()) return;
+    if (Object.keys(errors).length > 0 || busy || regUnknown || !guard()) return;
+    let sent = false;
+    let reverted = false;
     try {
       setPhase("reg-sign");
       const hash = await write.mutateAsync({
@@ -127,16 +131,22 @@ export function RegisterForm({ identity, pool }: { identity?: Address; pool?: Ad
         chainId: elysium.id,
       });
       setRegHash(hash);
+      sent = true;
       setPhase("reg-confirm");
       const receipt = await waitForTransactionReceipt(config, { hash, chainId: elysium.id });
-      if (receipt.status !== "success") throw new Error("The registration transaction reverted.");
+      if (receipt.status !== "success") {
+        reverted = true; // nothing was registered, so retrying is safe
+        throw new Error("The registration transaction reverted.");
+      }
       const ev = parseEventLogs({ abi: identityAbi, eventName: "Registered", logs: receipt.logs }).find(
         (l) => l.address.toLowerCase() === identity!.toLowerCase(),
       );
       if (!ev) throw new Error("Registered event not found in the receipt.");
       setAgentId(ev.args.agentId);
     } catch (err) {
-      setError(humanizeError(err));
+      const outcomeUnknown = sent && !reverted;
+      if (outcomeUnknown) setRegUnknown(true);
+      setError(registrationError(err, outcomeUnknown));
     } finally {
       setPhase("idle");
     }
@@ -174,6 +184,7 @@ export function RegisterForm({ identity, pool }: { identity?: Address; pool?: Ad
     setAgentId(null);
     setLineHash(null);
     setLineDone(false);
+    setRegUnknown(false);
   }
 
   const alert = shownError ? (
@@ -355,7 +366,7 @@ export function RegisterForm({ identity, pool }: { identity?: Address; pool?: Ad
             {wallet.switching ? "Switching…" : submitLabel}
           </button>
         ) : (
-          <button type="submit" className="btn btn-solid disabled:cursor-wait disabled:opacity-60" disabled={!configured || busy}>
+          <button type="submit" className="btn btn-solid disabled:cursor-wait disabled:opacity-60" disabled={!configured || busy || regUnknown}>
             {submitLabel}
           </button>
         )}

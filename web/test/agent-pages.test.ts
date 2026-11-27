@@ -7,8 +7,18 @@ import {
   REGISTRATION_TYPE,
   validateRegistration,
 } from "../lib/agent-uri";
-import { BOARD_EMPTY, HOUSE_BADGE, sortRows, toBoardRow, toBoardRows } from "../lib/board";
-import { humanizeError, MSG_NO_WALLET, MSG_REJECTED, MSG_WRONG_CHAIN } from "../lib/tx-errors";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { BOARD_EMPTY, displayName, HOUSE_BADGE, sortRows, toBoardRow, toBoardRows } from "../lib/board";
+import {
+  humanizeError,
+  MSG_CHECK_EXPLORER,
+  MSG_NO_WALLET,
+  MSG_REJECTED,
+  MSG_WRONG_CHAIN,
+  registrationError,
+} from "../lib/tx-errors";
+import { checkView } from "../lib/indexer";
 
 const OWNER = "0x00000000000000000000000000000000000000c3";
 const decode = (uri: string) =>
@@ -69,7 +79,7 @@ describe("agentURI", () => {
 
 describe("board rows", () => {
   const raw = (o: Record<string, unknown> = {}) => ({
-    id: 1, owner: OWNER, uri: "", score: 0, repaidCount: 0, lineAmount: 0n, status: "registered", isHouse: false, ...o,
+    id: 1, owner: OWNER, name: undefined, score: 0, repaidCount: 0, lineAmount: 0n, status: "registered", isHouse: false, ...o,
   });
 
   it("formats line, names and passes isHouse through exactly", () => {
@@ -77,6 +87,15 @@ describe("board rows", () => {
     expect(r).toMatchObject({ id: 2, name: "Agent #2", line: "$5.00", isHouse: true });
     expect(toBoardRow(raw({ isHouse: "true" }))!.isHouse).toBe(false);
     expect(toBoardRow(raw())!.line).toBe("—");
+  });
+
+  it("uses the parsed name from /api/agents, sanitised, with an Agent #id fallback", () => {
+    expect(toBoardRow(raw({ id: 4, name: "  Atlas\n  Prime " }))!.name).toBe("Atlas Prime");
+    expect(toBoardRow(raw({ id: 4, name: "" }))!.name).toBe("Agent #4");
+    expect(toBoardRow(raw({ id: 4, name: 42 }))!.name).toBe("Agent #4");
+    expect([...displayName("n".repeat(500), 1)].length).toBe(64);
+    // a raw agentURI is never decoded on the client any more
+    expect(toBoardRow({ ...raw({ id: 5 }), uri: "data:application/json;base64,eyJuYW1lIjoiWCJ9" } as never)!.name).toBe("Agent #5");
   });
 
   it("accepts /api/agents JSON (bigints as strings) and drops malformed rows", () => {
@@ -121,6 +140,15 @@ describe("humanizeError", () => {
     expect(humanizeError({ shortMessage: 'The contract function "requestLine" reverted with custom error LineActive()' })).toMatch(/already has an open line/);
   });
 
+  it("locks registration retries when a sent transaction's outcome is unknown", () => {
+    const err = { shortMessage: "Timed out while waiting for transaction" };
+    expect(registrationError(err, true)).toBe(`Transaction failed: Timed out while waiting for transaction ${MSG_CHECK_EXPLORER}`);
+    expect(MSG_CHECK_EXPLORER).toBe("Check the transaction on the explorer before retrying.");
+    expect(registrationError(err, false)).not.toContain(MSG_CHECK_EXPLORER);
+    const form = readFileSync(join(__dirname, "..", "components", "RegisterForm.tsx"), "utf8");
+    expect(form).toContain("disabled={!configured || busy || regUnknown}");
+  });
+
   it("falls back to the short message, never throws on junk", () => {
     expect(humanizeError({ shortMessage: "RPC timeout" })).toBe("Transaction failed: RPC timeout");
     expect(humanizeError(null)).toBe("Something went wrong. Please try again.");
@@ -146,6 +174,33 @@ describe("docs copy and copy rules", async () => {
       "A line follows the agent NFT: if the agent is transferred, the new owner can borrow against it until the backer closes the line.",
     );
     expect(docs.MCP_TOOLS).toEqual(["register_agent", "request_line", "check_score", "get_line", "get_loans", "borrow", "repay"]);
+    expect(docs.SELF_BACKED_NOTE).toBe(
+      "The score counts repayments on any line, including lines an agent backs itself — check `backer`/`selfBacked`.",
+    );
+  });
+
+  it("MCP is installed from the repo (node dist/server.js), never via npx, with ELYRION_FROM_BLOCK", () => {
+    const cfg = docs.mcpConfig({ identity: "0xI", pool: "0xP", deployBlock: 1234n });
+    expect(cfg.mcpServers.elyrion.command).toBe("node");
+    expect(cfg.mcpServers.elyrion.args).toEqual(["<repo>/mcp/dist/server.js"]);
+    expect(cfg.mcpServers.elyrion.env).toMatchObject({ ELYRION_IDENTITY: "0xI", ELYRION_POOL: "0xP", ELYRION_FROM_BLOCK: "1234" });
+    expect(docs.mcpConfig({}).mcpServers.elyrion.env.ELYRION_FROM_BLOCK).toBe("<deploy block>");
+    expect(docs.mcpInstallSteps()).toContain("pnpm --filter @elyrion/mcp build");
+    expect(docs.mcpInstallSteps("https://example.com/r.git")).toContain("git clone https://example.com/r.git");
+    const page = readFileSync(join(__dirname, "..", "app", "(site)", "docs", "page.tsx"), "utf8");
+    expect(page).not.toMatch(/npx/);
+    expect(page).toContain("SELF_BACKED_NOTE");
+    expect(page).toContain("ELYRION_FROM_BLOCK");
+  });
+
+  it("check API rows carry backer and selfBacked", () => {
+    const row = {
+      id: 1, owner: OWNER, name: "A", score: 1, repaidCount: 1, qualifiedRepaid: 0, defaulted: false, lineAmount: 5n,
+      backer: OWNER, selfBacked: true, status: "active", isHouse: false,
+    } as const;
+    expect(checkView(row as never)).toEqual({
+      id: 1, score: 1, repaidCount: 1, qualifiedRepaid: 0, defaulted: false, lineAmount: 5n, backer: OWNER, selfBacked: true,
+    });
   });
 
   it("site sources never use forbidden phrases", () => {

@@ -16,7 +16,41 @@ export const PRIORS_CREDIT = "Score design adapted from Priors (MIT).";
 
 export const MCP_PACKAGE = "@elyrion/mcp";
 
-export const MCP_ENV = ["ELYRION_AGENT_KEY", "ELYRION_IDENTITY", "ELYRION_POOL"] as const;
+export const MCP_ENV = ["ELYRION_AGENT_KEY", "ELYRION_IDENTITY", "ELYRION_POOL", "ELYRION_FROM_BLOCK"] as const;
+
+/** The MCP server is installed from the repository (it is not published to npm). */
+export const MCP_SERVER_PATH = "<repo>/mcp/dist/server.js";
+
+/** Shell steps to build the MCP server from a clone. */
+export function mcpInstallSteps(repoUrl?: string): string {
+  return [
+    `git clone ${repoUrl || "<Elyrion repository URL>"} elyrion`,
+    "cd elyrion",
+    "pnpm install",
+    "pnpm --filter @elyrion/mcp build",
+  ].join("\n");
+}
+
+/** MCP client config: node runs the built server from the clone. */
+export function mcpConfig(o: { identity?: string; pool?: string; deployBlock?: bigint }) {
+  return {
+    mcpServers: {
+      elyrion: {
+        command: "node",
+        args: [MCP_SERVER_PATH],
+        env: {
+          ELYRION_AGENT_KEY: "<agent wallet private key>",
+          ELYRION_IDENTITY: o.identity ?? "<identity registry address>",
+          ELYRION_POOL: o.pool ?? "<credit pool address>",
+          ELYRION_FROM_BLOCK: o.deployBlock && o.deployBlock > 0n ? o.deployBlock.toString() : "<deploy block>",
+        },
+      },
+    },
+  };
+}
+
+export const SELF_BACKED_NOTE =
+  "The score counts repayments on any line, including lines an agent backs itself — check `backer`/`selfBacked`.";
 
 export const MCP_TOOLS = [
   "register_agent",

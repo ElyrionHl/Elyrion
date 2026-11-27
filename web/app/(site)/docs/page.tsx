@@ -5,7 +5,18 @@ import { RiskNote } from "@/components/brand/RiskNote";
 import { PageHead } from "@/components/PageHead";
 import { ELYSIUM_EXPLORER, ELYSIUM_RPC, explorerAddressUrl } from "@/lib/chain";
 import { readConfig } from "@/lib/contracts";
-import { BACKER_NOTE, DEFAULT_RULE, MCP_PACKAGE, MCP_TOOLS, PRIORS_CREDIT, SCORE_ROWS } from "@/lib/docs-copy";
+import {
+  BACKER_NOTE,
+  DEFAULT_RULE,
+  MCP_PACKAGE,
+  MCP_SERVER_PATH,
+  MCP_TOOLS,
+  mcpConfig as buildMcpConfig,
+  mcpInstallSteps,
+  PRIORS_CREDIT,
+  SCORE_ROWS,
+  SELF_BACKED_NOTE,
+} from "@/lib/docs-copy";
 
 export const metadata: Metadata = {
   title: "Docs",
@@ -70,30 +81,15 @@ function Code({ children, label }: { children: string; label?: string }) {
 const P = "text-[14.5px] leading-relaxed text-marble/75";
 
 export default function DocsPage() {
-  const { identity, pool, treasury } = readConfig();
+  const { identity, pool, treasury, deployBlock } = readConfig();
+  const sourceUrl = /^https:\/\//.test(process.env.NEXT_PUBLIC_SOURCE_URL ?? "") ? process.env.NEXT_PUBLIC_SOURCE_URL : undefined;
   const ADDRESSES: [string, string | undefined, string][] = [
     ["Identity registry", identity, "ElyrionIdentity · ERC-8004-compatible agent NFTs"],
     ["Credit pool", pool, "ElyrionPool · deposits, lines, loans, scores"],
     ["Treasury wallet", treasury, "Holds the team pledge as pool shares"],
   ];
 
-  const mcpConfig = JSON.stringify(
-    {
-      mcpServers: {
-        elyrion: {
-          command: "npx",
-          args: ["-y", MCP_PACKAGE],
-          env: {
-            ELYRION_AGENT_KEY: "<agent wallet private key>",
-            ELYRION_IDENTITY: identity ?? "<identity registry address>",
-            ELYRION_POOL: pool ?? "<credit pool address>",
-          },
-        },
-      },
-    },
-    null,
-    2,
-  );
+  const mcpConfig = JSON.stringify(buildMcpConfig({ identity, pool, deployBlock }), null, 2);
 
   const checkExample = `{
   "ok": true,
@@ -104,9 +100,13 @@ export default function DocsPage() {
       "repaidCount": 1,
       "qualifiedRepaid": 1,
       "defaulted": false,
-      "lineAmount": "5000000"
+      "lineAmount": "5000000",
+      "backer": "0x…",
+      "selfBacked": false
     }
-  ]
+  ],
+  "stale": false,
+  "updatedAt": 1795737789000
 }`;
 
   return (
@@ -142,11 +142,20 @@ export default function DocsPage() {
             <Reveal>
               <p className={P}>
                 The Elyrion MCP server lets an agent register itself, request a line, borrow and repay from any
-                MCP-capable client. Add it to your client&apos;s MCP config:
+                MCP-capable client. It is installed from the source repository (Node.js 20+ and pnpm), not from npm:
               </p>
             </Reveal>
             <Reveal>
-              <Code label={`mcp config · ${MCP_PACKAGE}`}>{mcpConfig}</Code>
+              <Code label="install from the repository">{mcpInstallSteps(sourceUrl)}</Code>
+            </Reveal>
+            <Reveal>
+              <p className={P}>
+                Then add it to your client&apos;s MCP config, replacing <span className="num text-marble">&lt;repo&gt;</span>{" "}
+                with the full path of the clone:
+              </p>
+            </Reveal>
+            <Reveal>
+              <Code label={`mcp config · ${MCP_PACKAGE} · node ${MCP_SERVER_PATH}`}>{mcpConfig}</Code>
             </Reveal>
             <Reveal>
               <dl className="grid gap-px overflow-hidden rounded-[14px] border border-line bg-line">
@@ -154,6 +163,7 @@ export default function DocsPage() {
                   ["ELYRION_AGENT_KEY", "Private key of the agent's own wallet, used only to sign write tools. It is never logged or returned. Read tools work without it. Use a dedicated wallet holding only what the agent needs."],
                   ["ELYRION_IDENTITY", "Address of the identity registry (see Contracts)."],
                   ["ELYRION_POOL", "Address of the credit pool (see Contracts)."],
+                  ["ELYRION_FROM_BLOCK", "Block the contracts were deployed at. get_loans scans logs from here in 10,000-block ranges; without it the scan starts at block 0 and is slow."],
                 ].map(([k, v]) => (
                   <div key={k} className="grid gap-1.5 bg-obsidian-2 p-4 sm:grid-cols-[200px_minmax(0,1fr)] sm:gap-6">
                     <dt className="num text-[12px] text-gold">{k}</dt>
@@ -302,9 +312,19 @@ export default function DocsPage() {
             <Reveal>
               <p className="text-[13px] leading-relaxed text-mute">
                 <span className="num text-marble/80">lineAmount</span> is USDC with 6 decimals, as a string (
-                <span className="num">&quot;5000000&quot;</span> = $5). When the chain cannot be read the API answers{" "}
-                <span className="num text-marble/80">{`{ "ok": false }`}</span> instead of guessing. Data is cached for up
-                to 15 seconds.
+                <span className="num">&quot;5000000&quot;</span> = $5). <span className="num text-marble/80">backer</span>{" "}
+                is the active line&apos;s backer (null without a line) and{" "}
+                <span className="num text-marble/80">selfBacked</span> is true when that backer is the agent&apos;s
+                current owner. Data is cached for up to 15 seconds. If a refresh fails, the last good data is served
+                with <span className="num text-marble/80">&quot;stale&quot;: true</span> and its{" "}
+                <span className="num text-marble/80">updatedAt</span> time; when nothing has been read yet the API
+                answers <span className="num text-marble/80">{`{ "ok": false }`}</span> instead of guessing.
+              </p>
+            </Reveal>
+            <Reveal>
+              <p className="flex items-start gap-3 rounded-[14px] border border-gold/30 bg-obsidian p-4 text-[14px] leading-relaxed text-marble/90">
+                <span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-gold" />
+                <span>{SELF_BACKED_NOTE}</span>
               </p>
             </Reveal>
           </section>
