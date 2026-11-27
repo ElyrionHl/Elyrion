@@ -112,7 +112,8 @@ contract PoolHandler is Test {
         if (_defaulted(agentId)) return;
         (address existing,,) = pool.lines(agentId);
         if (existing != address(0)) return;
-        amount = bound(amount, 1e6, pool.maxLoan());
+        if (pool.maxLoan() < pool.MIN_LOAN()) return;
+        amount = bound(amount, pool.MIN_LOAN(), pool.maxLoan());
         if (pool.convertToSharesUp(amount) > _free(backer)) return;
         vm.prank(registry.ownerOf(agentId));
         pool.requestLine(agentId, amount);

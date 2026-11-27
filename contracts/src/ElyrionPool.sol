@@ -65,7 +65,8 @@ contract ElyrionPool is Ownable2Step, ReentrancyGuard {
     uint256 public totalShares;
     mapping(address => uint256) public sharesOf;
     mapping(address => uint256) public lockedSharesOf;
-    /// @notice Net principal deposited per wallet (for the per-wallet cap).
+    /// @notice Net principal deposited per wallet (for the per-wallet cap). Reduced by withdrawals and, for a backer,
+    ///         by the asset value of shares burned in a default (so the backer can top back up to the cap).
     mapping(address => uint256) public depositedOf;
 
     // ------------------------------------------------------------------ credit lines & loans
@@ -228,25 +229,27 @@ contract ElyrionPool is Ownable2Step, ReentrancyGuard {
 
     // ------------------------------------------------------------------ credit lines
 
-    /// @notice Agent owner asks for a credit line of `amount`. Re-requesting overwrites a pending request.
+    /// @notice Agent owner asks for a credit line of `amount` (MIN_LOAN..maxLoan). Re-requesting overwrites a pending
+    ///         request.
     function requestLine(uint256 agentId, uint256 amount) external {
         address agentOwner = registry.ownerOf(agentId);
         if (msg.sender != agentOwner) revert NotAgentOwner();
         if (stats[agentId].defaulted) revert AgentDefaulted();
         if (lines[agentId].backer != address(0)) revert LineActive();
-        if (amount == 0 || amount > maxLoan) revert BadAmount();
+        if (amount < MIN_LOAN || amount > maxLoan) revert BadAmount();
         pendingRequest[agentId] = amount;
         emit LineRequested(agentId, agentOwner, amount);
     }
 
     /// @notice Any lender backs an agent's pending request by locking `convertToSharesUp(amount)` of its free shares.
     ///         Locked shares cannot be withdrawn and are burned first if the agent defaults. Pausable.
+    ///         `amount` must be at least MIN_LOAN, so every line can be borrowed against.
     function openLine(uint256 agentId, uint256 amount) external nonReentrant whenNotPaused {
         if (stats[agentId].defaulted) revert AgentDefaulted();
         if (lines[agentId].backer != address(0)) revert LineActive();
         uint256 requested = pendingRequest[agentId];
         if (requested == 0) revert NoPendingRequest();
-        if (amount == 0 || amount > requested || amount > maxLoan) revert BadAmount();
+        if (amount < MIN_LOAN || amount > requested || amount > maxLoan) revert BadAmount();
 
         uint256 lock = convertToSharesUp(amount);
         if (lock > sharesOf[msg.sender] - lockedSharesOf[msg.sender]) revert BadAmount();
@@ -345,6 +348,8 @@ contract ElyrionPool is Ownable2Step, ReentrancyGuard {
     ///      principal is written off, so the share price (and every other lender's convertToAssets) cannot fall.
     ///      The line's locked shares were worth >= line.amount >= principal at open and the price never falls,
     ///      so the cap at `locked` still covers the principal.
+    ///      The backer's `depositedOf` drops by min(depositedOf, asset value of the burned shares at that same price),
+    ///      so the per-wallet cap tracks principal the backer still has in the pool.
     function markDefault(uint256 loanId) external nonReentrant {
         Loan storage loan = _loans[loanId];
         if (loan.principal == 0 || loan.status != LoanStatus.Open) revert LoanClosed();
@@ -354,6 +359,9 @@ contract ElyrionPool is Ownable2Step, ReentrancyGuard {
         Line memory line = lines[agentId];
 
         uint256 burn = Math.min(line.lockedShares, convertToSharesUp(principal + loan.fee));
+        uint256 burnedAssets = convertToAssets(burn);
+        uint256 deposited = depositedOf[line.backer];
+        depositedOf[line.backer] = deposited - Math.min(burnedAssets, deposited);
         sharesOf[line.backer] -= burn;
         lockedSharesOf[line.backer] -= line.lockedShares; // burned part + unlocked rest
         totalShares -= burn;

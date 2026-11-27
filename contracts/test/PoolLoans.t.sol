@@ -860,6 +860,86 @@ contract PoolLoansTest is Test {
         assertEq(_score(agent), 60); // 3 points per $1 of active line
     }
 
+    // ---------------------------------------------------------------- MIN_LOAN on lines (I5)
+
+    function test_requestLineBelowMinLoanReverts() public {
+        vm.startPrank(dave);
+        vm.expectRevert(abi.encodeWithSelector(ElyrionPool.BadAmount.selector));
+        pool.requestLine(agent, 5e6 - 1);
+        pool.requestLine(agent, 5e6); // exactly MIN_LOAN is allowed
+        vm.stopPrank();
+        assertEq(pool.pendingRequest(agent), 5e6);
+    }
+
+    function test_openLineBelowMinLoanReverts() public {
+        _deposit(alice, 100e6);
+        vm.prank(dave);
+        pool.requestLine(agent, 20e6);
+        vm.startPrank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ElyrionPool.BadAmount.selector));
+        pool.openLine(agent, 5e6 - 1); // a partial fill below MIN_LOAN would be an unborrowable line
+        pool.openLine(agent, 5e6);
+        vm.stopPrank();
+        (, uint256 amount,) = _line(agent);
+        assertEq(amount, 5e6);
+    }
+
+    // ---------------------------------------------------------------- depositedOf after a default (I1)
+
+    function test_defaultReducesBackerDepositedOf() public {
+        _deposit(treasury, 1_000e6);
+        _deposit(bob, 100e6);
+        _openLine(agent, treasury, 50e6);
+        uint256 loanId = _borrow(agent, 50e6, 7 days);
+        vm.warp(block.timestamp + 8 days + 1);
+
+        uint256 burn = pool.lockedSharesOf(treasury); // full-line loan: burn capped at the lock
+        uint256 burnedAssets = pool.convertToAssets(burn); // priced before the write-off, like markDefault
+        assertGe(burnedAssets, 50e6);
+        pool.markDefault(loanId);
+
+        assertEq(pool.depositedOf(treasury), 1_000e6 - burnedAssets);
+        // a plain lender's principal record is untouched
+        assertEq(pool.depositedOf(bob), 100e6);
+    }
+
+    function test_backerCanTopUpAfterDefault() public {
+        _deposit(treasury, 1_000e6);
+        _deposit(bob, 100e6);
+        _openLine(agent, treasury, 50e6);
+        uint256 loanId = _borrow(agent, 50e6, 7 days);
+        vm.warp(block.timestamp + 8 days + 1);
+        pool.markDefault(loanId);
+
+        uint256 room = 1_000e6 - pool.depositedOf(treasury);
+        assertGt(room, 0);
+        _fund(treasury, room);
+        vm.prank(treasury);
+        pool.deposit(room); // would revert CapExceeded without the reduction
+        assertEq(pool.depositedOf(treasury), 1_000e6);
+
+        _fund(treasury, 1);
+        vm.prank(treasury);
+        vm.expectRevert(abi.encodeWithSelector(ElyrionPool.CapExceeded.selector));
+        pool.deposit(1);
+    }
+
+    function test_defaultDepositedOfFloorsAtZero() public {
+        // the backer withdrew its recorded principal earlier (profit clamps depositedOf to 0) and then a default burns more
+        _deposit(alice, 60e6);
+        _deposit(bob, 100e6);
+        _openLine(agent, alice, 50e6);
+        // alice withdraws her free 10 → depositedOf 50
+        uint256 free = pool.sharesOf(alice) - pool.lockedSharesOf(alice);
+        vm.prank(alice);
+        pool.withdraw(free);
+        assertEq(pool.depositedOf(alice), 50e6);
+        uint256 loanId = _borrow(agent, 50e6, 7 days);
+        vm.warp(block.timestamp + 8 days + 1);
+        pool.markDefault(loanId);
+        assertEq(pool.depositedOf(alice), 0); // min(depositedOf, burned assets) never underflows
+    }
+
     function test_renounceOwnershipDisabled() public {
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(ElyrionPool.RenounceDisabled.selector));
