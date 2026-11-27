@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 export default async function BoardPage() {
-  const { ok, items } = await getAgents();
+  const { ok, items, stale, updatedAt } = await getAgents();
   const rows = ok ? toBoardRows(items) : [];
 
   return (
@@ -30,7 +30,7 @@ export default async function BoardPage() {
       />
       <section aria-label="Agents" className="mx-auto max-w-[1240px] px-4 py-12 sm:px-8 md:py-16">
         <Reveal>
-          <AgentTable initial={rows} ok={ok} />
+          <AgentTable initial={rows} ok={ok} stale={stale} updatedAt={updatedAt} />
         </Reveal>
       </section>
     </>

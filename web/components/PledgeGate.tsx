@@ -1,11 +1,10 @@
 import type { CSSProperties } from "react";
 import { GateLogo } from "@/components/brand/GateLogo";
 import { Reveal } from "@/components/brand/Reveal";
-import { formatUsdc } from "@/lib/format";
-import { pledgeProgress } from "@/lib/pledge";
+import { PLEDGE_AMOUNT, PLEDGE_LINE, PLEDGE_SOURCE, PLEDGE_UNIT, pledgeView } from "@/lib/pledge";
 
 export type PledgeGateProps = {
-  /** On-chain value of the treasury's pool shares (USDC, 6 decimals), from getStats().treasuryDeposited. */
+  /** pool.depositedOf(treasury): net USDC principal the treasury deposited (6 decimals), from getPledge(). */
   deposited: bigint;
   /** False when the chain could not be read: the amount shows "—", never a number. Default true. */
   ok?: boolean;
@@ -22,10 +21,7 @@ const TICKS = ["$0", "$250", "$500", "$750", "$1,000"];
  * Copy is fixed by the copy rules. Server Component.
  */
 export function PledgeGate({ deposited, ok = true, href }: PledgeGateProps) {
-  const { pct, open } = pledgeProgress(ok ? deposited : 0n);
-  const isOpen = ok && open;
-  const amount = ok ? formatUsdc(deposited) : "—";
-  const dollars = ok ? Number(deposited / 10_000n) / 100 : 0;
+  const { isOpen, pct, amount, pctText, statusText, dollars } = pledgeView(deposited, ok);
 
   return (
     <section id="pledge" aria-labelledby="pledge-title" className="relative">
@@ -52,12 +48,12 @@ export function PledgeGate({ deposited, ok = true, href }: PledgeGateProps) {
               <h2 id="pledge-title" className="mt-5">
                 <strong className="flex flex-wrap items-baseline gap-x-4 gap-y-1 font-normal">
                   <span className="num text-[56px] leading-none text-marble sm:text-[84px] lg:text-[104px]">
-                    $1,000
-                  </span>
-                  <span className="num text-[20px] leading-none text-gold sm:text-[28px]">USDC</span>
+                    {PLEDGE_AMOUNT}
+                  </span>{" "}
+                  <span className="num text-[20px] leading-none text-gold sm:text-[28px]">{PLEDGE_UNIT}</span>
                 </strong>
                 <span className="display mt-4 block text-[26px] text-marble/90 sm:text-[34px]">
-                  pledged by the Elyrion team to the treasury
+                  {PLEDGE_LINE}
                 </span>
               </h2>
             </Reveal>
@@ -78,9 +74,9 @@ export function PledgeGate({ deposited, ok = true, href }: PledgeGateProps) {
                   ) : (
                     <span className={ok ? "text-gold" : "text-mute"}>{amount}</span>
                   )}{" "}
-                  / $1,000
+                  / {PLEDGE_AMOUNT}
                 </p>
-                <p className="stat-key">{ok ? `${pct.toFixed(2)}%` : "—"}</p>
+                <p className="stat-key">{pctText}</p>
               </div>
 
               <div
@@ -88,7 +84,7 @@ export function PledgeGate({ deposited, ok = true, href }: PledgeGateProps) {
                 aria-label="Pledge deposited on-chain"
                 aria-valuemin={0}
                 aria-valuemax={1000}
-                aria-valuenow={ok ? dollars : undefined}
+                aria-valuenow={dollars}
                 aria-valuetext={ok ? `${amount} of $1,000 deposited on-chain` : "Unavailable"}
                 className="relative mt-4 h-[3px] rounded-full bg-line"
               >
@@ -113,16 +109,10 @@ export function PledgeGate({ deposited, ok = true, href }: PledgeGateProps) {
                   aria-hidden="true"
                   className={`size-1.5 shrink-0 rounded-full ${isOpen ? "bg-gold" : "border border-gold/60"}`}
                 />
-                {isOpen ? (
-                  <span className="text-gold">The Gate is open</span>
-                ) : ok ? (
-                  "The Gate opens when the full pledge is on-chain."
-                ) : (
-                  "Live chain data is unavailable right now."
-                )}
+                {isOpen ? <span className="text-gold">{statusText}</span> : statusText}
               </p>
               <p className="mt-2 pl-4 text-[12.5px] leading-relaxed text-mute">
-                Read live from the credit pool on Elysium: the value of the treasury wallet&apos;s pool shares.
+                {PLEDGE_SOURCE}
               </p>
             </Reveal>
           </div>

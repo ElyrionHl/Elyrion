@@ -1,8 +1,9 @@
 import { json } from "@/lib/api";
-import { getAgents } from "@/lib/indexer";
+import { getAgents, publicAgent } from "@/lib/indexer";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return json(await getAgents());
+  const { items, ...fresh } = await getAgents();
+  return json({ ...fresh, items: items.map(publicAgent) });
 }

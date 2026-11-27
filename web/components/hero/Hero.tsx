@@ -7,6 +7,7 @@ import { Reveal } from "@/components/brand/Reveal";
 import {
   eventKey,
   FIRST_LOAD_PULSES,
+  liveLabel,
   parseLiveEvents,
   takeNewEvents,
   type LiveEvent,
@@ -15,6 +16,10 @@ import { Constellation } from "./Constellation";
 
 export type HeroStats = {
   ok: boolean;
+  /** The server served an older snapshot because its last refresh failed. */
+  stale: boolean;
+  /** Unix ms of the snapshot; null when none. */
+  updatedAt: number | null;
   agents: number;
   loansRepaid: number;
   defaults: number;
@@ -39,18 +44,22 @@ function toInt(v: unknown): number | null {
  * (numbers are in the HTML), then polls /api/stats every 15 s while the tab is
  * visible so the numbers stay live and new Borrowed/Repaid events pulse in the
  * constellation. A failed poll keeps the last real values; "—" is shown only
- * while no chain read has ever succeeded.
+ * while no chain read has ever succeeded. After two failed polls in a row, or
+ * when the server serves a stale snapshot, "Live · Elysium" becomes
+ * "Last updated <time>".
  */
 export function Hero({ initial }: { initial: HeroStats }) {
   const [stats, setStats] = useState(initial);
   const [seen] = useState(() => new Set(initial.recentEvents.map(eventKey)));
   const [pulses, setPulses] = useState(() => firstPulses(initial.recentEvents));
+  const [failures, setFailures] = useState(0);
 
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const poll = async () => {
+      let good = false;
       try {
         const res = await fetch("/api/stats", { cache: "no-store" });
         const body = (await res.json()) as Record<string, unknown>;
@@ -61,11 +70,14 @@ export function Hero({ initial }: { initial: HeroStats }) {
         if (agents === null || loansRepaid === null || defaults === null) return;
         const events = parseLiveEvents(body.recentEvents);
         const fresh = takeNewEvents(events, seen, false);
-        setStats({ ok: true, agents, loansRepaid, defaults, recentEvents: events });
+        const updatedAt = toInt(body.updatedAt);
+        setStats({ ok: true, stale: body.stale === true, updatedAt, agents, loansRepaid, defaults, recentEvents: events });
         if (fresh.length) setPulses((prev) => [...prev, ...fresh].slice(-20));
+        good = true;
       } catch {
         // Network/JSON error: keep showing the last real values.
       } finally {
+        if (alive) setFailures((n) => (good ? 0 : n + 1));
         if (alive) schedule();
       }
     };
@@ -90,6 +102,7 @@ export function Hero({ initial }: { initial: HeroStats }) {
   }, [seen]);
 
   const latest = stats.recentEvents[0];
+  const label = liveLabel({ ok: stats.ok, stale: stats.stale, failures, updatedAt: stats.updatedAt });
   const items: [string, number][] = [
     ["Agents registered", stats.agents],
     ["Loans repaid", stats.loansRepaid],
@@ -148,9 +161,9 @@ export function Hero({ initial }: { initial: HeroStats }) {
             <p className="stat-key flex items-center gap-2.5 lg:justify-end">
               <span
                 aria-hidden="true"
-                className={stats.ok ? "live-dot" : "size-1.5 rounded-full bg-mute"}
+                className={label.live ? "live-dot" : "size-1.5 rounded-full bg-mute"}
               />
-              {stats.ok ? "Live · Elysium" : "Chain data unavailable"}
+              {label.text}
             </p>
             <dl className="mt-5 grid border-t border-line sm:grid-cols-3 sm:gap-6 sm:border-0 lg:mt-6 lg:grid-cols-1 lg:gap-[18px]">
               {items.map(([label, value]) => (

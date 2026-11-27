@@ -2,7 +2,8 @@ import type { Address, Hash, PublicClient } from "viem";
 
 /** Block range per getLogs call (public RPCs cap the range). */
 export const CHUNK = 10_000n;
-const CONCURRENCY = 4;
+/** getLogs calls in flight at once (the batch transport sends them as one JSON-RPC batch). */
+export const CONCURRENCY = 8;
 
 /** A decoded event log, as returned by viem's getLogs with `events`. */
 export interface Ev {
@@ -19,7 +20,8 @@ export function eventsOf(abi: readonly { type: string; name?: string }[], names:
   return abi.filter((x) => x.type === "event" && x.name && names.includes(x.name));
 }
 
-/** Decoded logs of `events` at `address` over [from, to], fetched in CHUNK-sized ranges, 4 at a time. */
+/** Decoded logs of `events` at `address` over [from, to], fetched in CHUNK-sized ranges, CONCURRENCY at a time.
+ * Throws if any range fails, so callers never fold a partial window. */
 export async function fetchLogs(
   client: PublicClient,
   address: Address,

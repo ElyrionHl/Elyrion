@@ -15,8 +15,14 @@ export function getRpcUrl(): string {
   return process.env.NEXT_PUBLIC_RPC_URL || ELYSIUM_RPC;
 }
 
+/**
+ * JSON-RPC batching for reads. Elysium has no multicall3, so concurrent eth_call / eth_getLogs requests are
+ * coalesced into batched HTTP requests instead.
+ */
+export const RPC_BATCH = { batchSize: 100 } as const;
+
 export function makePublicClient() {
-  return createPublicClient({ chain: elysium, transport: http(getRpcUrl()) });
+  return createPublicClient({ chain: elysium, transport: http(getRpcUrl(), { batch: RPC_BATCH }) });
 }
 
 /** Explorer page for an address. */

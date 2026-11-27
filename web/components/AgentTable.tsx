@@ -13,6 +13,7 @@ import {
   type SortKey,
 } from "@/lib/board";
 import { explorerAddressUrl } from "@/lib/chain";
+import { utcTime } from "@/lib/live-events";
 import { shortAddr } from "@/lib/format";
 import type { AgentStatus } from "@/lib/indexer";
 
@@ -91,9 +92,22 @@ function SortHeader({
  * visible, so new agents appear without a reload. A failed poll keeps the last
  * real rows.
  */
-export function AgentTable({ initial, ok }: { initial: BoardRow[]; ok: boolean }) {
+export function AgentTable({
+  initial,
+  ok,
+  updatedAt = null,
+  stale = false,
+}: {
+  initial: BoardRow[];
+  ok: boolean;
+  /** Unix ms of the server snapshot. */
+  updatedAt?: number | null;
+  /** The server served an older snapshot because its last refresh failed. */
+  stale?: boolean;
+}) {
   const [rows, setRows] = useState(initial);
   const [live, setLive] = useState(ok);
+  const [fresh, setFresh] = useState({ stale, updatedAt });
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "score", dir: "desc" });
 
   useEffect(() => {
@@ -102,10 +116,14 @@ export function AgentTable({ initial, ok }: { initial: BoardRow[]; ok: boolean }
     const poll = async () => {
       try {
         const res = await fetch("/api/agents", { cache: "no-store" });
-        const body = (await res.json()) as { ok?: unknown; items?: unknown };
+        const body = (await res.json()) as { ok?: unknown; items?: unknown; stale?: unknown; updatedAt?: unknown };
         if (alive && body.ok === true) {
           setRows(toBoardRows(body.items));
           setLive(true);
+          setFresh({
+            stale: body.stale === true,
+            updatedAt: typeof body.updatedAt === "number" && Number.isFinite(body.updatedAt) ? body.updatedAt : null,
+          });
         }
       } catch {
         // keep the last real rows
@@ -162,9 +180,10 @@ export function AgentTable({ initial, ok }: { initial: BoardRow[]; ok: boolean }
   return (
     <div>
       <p className="mb-5 flex items-center gap-2.5 font-mono text-[11px] tracking-[0.14em] text-marble/70 uppercase">
-        <span aria-hidden="true" className="live-dot" />
+        <span aria-hidden="true" className={fresh.stale ? "size-1.5 rounded-full bg-mute" : "live-dot"} />
         <span>
-          <span className="num text-gold">{rows.length}</span> {rows.length === 1 ? "agent" : "agents"} registered · live
+          <span className="num text-gold">{rows.length}</span> {rows.length === 1 ? "agent" : "agents"} registered ·{" "}
+          {fresh.stale && fresh.updatedAt ? `last updated ${utcTime(fresh.updatedAt)}` : "live"}
         </span>
       </p>
       {/* Mobile: sort control + stacked cards */}

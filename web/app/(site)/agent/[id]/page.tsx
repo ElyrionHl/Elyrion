@@ -6,11 +6,11 @@ import { Reveal } from "@/components/brand/Reveal";
 import { HouseBadge, StatusBadge } from "@/components/AgentTable";
 import { CopyCheckApi } from "@/components/CopyCheckApi";
 import { ScoreRing } from "@/components/ScoreRing";
-import { parseAgentMeta } from "@/lib/agent-uri";
 import { STATUS_LABEL } from "@/lib/board";
 import { explorerAddressUrl, explorerTxUrl } from "@/lib/chain";
 import { formatUsdc, formatUsdcExact, shortAddr } from "@/lib/format";
 import { getAgent, getAgentLoans, type AgentLoan } from "@/lib/indexer";
+import { utcTime } from "@/lib/live-events";
 
 export const revalidate = 15;
 
@@ -27,7 +27,7 @@ export async function generateMetadata({ params }: PageProps<"/agent/[id]">): Pr
   const id = parseId((await params).id);
   if (id === null) return {};
   const { item } = await getAgent(id);
-  const name = (item && parseAgentMeta(item.uri).name) || `Agent #${id}`;
+  const name = item?.name || `Agent #${id}`;
   return { title: name, description: `On-chain credit record for ${name} on Elysium.` };
 }
 
@@ -67,7 +67,8 @@ export default async function AgentPage({ params }: PageProps<"/agent/[id]">) {
   const id = parseId((await params).id);
   if (id === null) notFound();
 
-  const [{ ok, item }, loans] = await Promise.all([getAgent(id), getAgentLoans(id)]);
+  // Both reads share one indexer refresh (in-flight promise), so this is a single chain sync.
+  const [{ ok, item, stale, updatedAt }, loans] = await Promise.all([getAgent(id), getAgentLoans(id)]);
   if (ok && !item) notFound();
 
   if (!ok || !item) {
@@ -86,8 +87,8 @@ export default async function AgentPage({ params }: PageProps<"/agent/[id]">) {
     );
   }
 
-  const meta = parseAgentMeta(item.uri);
-  const name = meta.name ?? `Agent #${id}`;
+  const meta = { description: item.description, endpoint: item.endpoint };
+  const name = item.name;
 
   return (
     <>
@@ -115,7 +116,17 @@ export default async function AgentPage({ params }: PageProps<"/agent/[id]">) {
             <Reveal delay={0.14} className="mt-4 flex flex-wrap items-center gap-2.5">
               <StatusBadge status={item.status} />
               {item.isHouse ? <HouseBadge /> : null}
+              {item.selfBacked ? (
+                <span className="inline-flex items-center rounded-full border border-marble/25 px-2.5 py-1 font-mono text-[9.5px] tracking-[0.1em] whitespace-nowrap text-marble/70">
+                  Self-backed line
+                </span>
+              ) : null}
             </Reveal>
+            {stale && updatedAt ? (
+              <p role="status" className="mt-3 font-mono text-[11px] tracking-[0.08em] text-mute">
+                Last updated {utcTime(updatedAt)}
+              </p>
+            ) : null}
             {meta.description ? (
               <Reveal delay={0.18}>
                 <p className="mt-5 max-w-[560px] text-[15px] leading-relaxed text-marble/80">{meta.description}</p>
@@ -139,11 +150,26 @@ export default async function AgentPage({ params }: PageProps<"/agent/[id]">) {
 
       <section aria-label="Credit record" className="mx-auto max-w-[1240px] px-4 py-12 sm:px-8 md:py-16">
         <Reveal>
-          <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-[18px] border border-line bg-line md:grid-cols-3 lg:grid-cols-6">
+          <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-[18px] border border-line bg-line md:grid-cols-4 lg:grid-cols-7">
             <Stat k="Score">{item.score}</Stat>
             <Stat k="Repaid">{item.repaidCount}</Stat>
             <Stat k="Qualified">{item.qualifiedRepaid}</Stat>
             <Stat k="Line">{item.lineAmount > 0n ? formatUsdc(item.lineAmount) : "—"}</Stat>
+            <Stat k="Backer">
+              {item.backer ? (
+                <a
+                  href={explorerAddressUrl(item.backer)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={item.backer}
+                  className="text-[15px] text-gold transition-colors duration-500 hover:text-marble"
+                >
+                  {item.selfBacked ? "Self" : shortAddr(item.backer)} ↗
+                </a>
+              ) : (
+                "—"
+              )}
+            </Stat>
             <Stat k="Status">
               <span className="text-[15px]">{STATUS_LABEL[item.status]}</span>
             </Stat>

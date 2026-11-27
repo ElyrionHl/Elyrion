@@ -51,3 +51,26 @@ export function takeNewEvents(
   const picked = first ? fresh.slice(0, firstLimit) : fresh;
   return picked.reverse();
 }
+
+/** Consecutive failed polls after which the hero stops saying "Live". */
+export const FAILED_POLLS_NOTICE = 2;
+
+/** "HH:MM UTC" (deterministic on server and client). */
+export function utcTime(ms: number): string {
+  return `${new Date(ms).toISOString().slice(11, 16)} UTC`;
+}
+
+/**
+ * The hero's freshness label. "Live · Elysium" only while the data is fresh; after FAILED_POLLS_NOTICE
+ * consecutive failed polls, or when the server serves a stale snapshot, "Last updated <time>".
+ */
+export function liveLabel(s: { ok: boolean; stale: boolean; failures: number; updatedAt: number | null }): {
+  text: string;
+  live: boolean;
+} {
+  if (!s.ok) return { text: "Chain data unavailable", live: false };
+  if (s.stale || s.failures >= FAILED_POLLS_NOTICE) {
+    return { text: s.updatedAt ? `Last updated ${utcTime(s.updatedAt)}` : "Last updated earlier", live: false };
+  }
+  return { text: "Live · Elysium", live: true };
+}

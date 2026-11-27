@@ -7,7 +7,7 @@ import { Hero } from "@/components/hero/Hero";
 import { PledgeGate } from "@/components/PledgeGate";
 import { explorerAddressUrl } from "@/lib/chain";
 import { readConfig } from "@/lib/contracts";
-import { getStats } from "@/lib/indexer";
+import { getPledge, getStats } from "@/lib/indexer";
 
 /** Re-render at most every 15 s (the indexer caches chain reads for the same TTL). */
 export const revalidate = 15;
@@ -116,7 +116,8 @@ function SectionHead({
 }
 
 export default async function Home() {
-  const stats = await getStats();
+  // The pledge is read on its own, so it still shows when the log scan behind the stats fails.
+  const [stats, pledge] = await Promise.all([getStats(), getPledge()]);
   const { pool, treasury } = readConfig();
   const pledgeAddress = treasury ?? pool;
 
@@ -125,6 +126,8 @@ export default async function Home() {
       <Hero
         initial={{
           ok: stats.ok,
+          stale: stats.stale,
+          updatedAt: stats.updatedAt,
           agents: stats.agents,
           loansRepaid: stats.loansRepaid,
           defaults: stats.defaults,
@@ -137,8 +140,8 @@ export default async function Home() {
       />
 
       <PledgeGate
-        deposited={stats.treasuryDeposited}
-        ok={stats.ok}
+        deposited={pledge.deposited}
+        ok={pledge.ok}
         href={pledgeAddress ? explorerAddressUrl(pledgeAddress) : undefined}
       />
 

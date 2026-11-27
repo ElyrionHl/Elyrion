@@ -1,4 +1,4 @@
-import { agentName } from "./agent-uri";
+import { NAME_MAX } from "./agent-uri";
 import { formatUsdc } from "./format";
 import type { AgentStatus } from "./indexer";
 
@@ -33,12 +33,21 @@ const STATUSES: AgentStatus[] = ["registered", "requested", "active", "defaulted
 interface RawAgent {
   id: unknown;
   owner: unknown;
-  uri: unknown;
+  name: unknown;
   score: unknown;
   repaidCount: unknown;
   lineAmount: unknown;
   status: unknown;
   isHouse: unknown;
+}
+
+/** Display name from untrusted JSON: a non-empty string, whitespace-collapsed and capped, else "Agent #id". */
+export function displayName(v: unknown, id: number): string {
+  if (typeof v !== "string") return `Agent #${id}`;
+  const s = v.replace(/\s+/g, " ").trim();
+  if (!s) return `Agent #${id}`;
+  const chars = [...s];
+  return chars.length > NAME_MAX ? `${chars.slice(0, NAME_MAX - 1).join("")}…` : s;
 }
 
 const int = (v: unknown): number | null => {
@@ -67,7 +76,7 @@ export function toBoardRow(a: RawAgent): BoardRow | null {
   const status = STATUSES.includes(a.status as AgentStatus) ? (a.status as AgentStatus) : "registered";
   return {
     id,
-    name: agentName(typeof a.uri === "string" ? a.uri : "", id),
+    name: displayName(a.name, id),
     owner: a.owner,
     score,
     repaidCount: repaid,

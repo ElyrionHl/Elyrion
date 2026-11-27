@@ -122,6 +122,15 @@ export function parseAgentMeta(uri: string): AgentMeta {
   }
 }
 
+/** agentURIs longer than this are treated as having no metadata (never stored or parsed). */
+export const MAX_URI_BYTES = 8 * 1024;
+
+/** parseAgentMeta for an untrusted on-chain value; oversized or non-string URIs count as none. */
+export function metaOf(uri: unknown): AgentMeta {
+  if (typeof uri !== "string" || uri.length > MAX_URI_BYTES) return {};
+  return parseAgentMeta(uri);
+}
+
 /** Display name: the registration file's name when readable, else "Agent #id". */
 export function agentName(uri: string, id: number): string {
   return parseAgentMeta(uri).name ?? `Agent #${id}`;
