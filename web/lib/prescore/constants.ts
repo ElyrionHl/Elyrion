@@ -48,3 +48,6 @@ export const T = {
   wideReachBreadth: 16,
   loyalActiveDays: 14,
 } as const;
+
+/** Exact disclaimer shown on the page, the card and the OG image. */
+export const DISCLAIMER = "Pre-Score · activity-based · not a credit score";
