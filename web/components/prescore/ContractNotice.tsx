@@ -27,7 +27,7 @@ export function ContractNotice({ address }: { address: string }) {
           </p>
         </Reveal>
         <Reveal delay={0.08}>
-          <h1 id="prescore-contract" className="display mt-4 text-[44px] sm:text-[64px]">
+          <h1 id="prescore-contract" tabIndex={-1} className="display mt-4 text-[44px] sm:text-[64px]">
             Pre-Score is for <em>wallets</em>.
           </h1>
         </Reveal>

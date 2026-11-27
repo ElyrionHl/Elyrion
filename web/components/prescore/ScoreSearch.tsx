@@ -65,7 +65,7 @@ export function ScoreSearch() {
             onBlur={() => value.trim() && setTouched(true)}
             aria-invalid={error ? true : undefined}
             aria-describedby={msgId}
-            className="num min-w-0 flex-1 bg-transparent py-3.5 text-[14px] text-marble outline-none placeholder:text-marble/25 focus-visible:outline-none sm:py-4 sm:text-[16px]"
+            className="num min-w-0 flex-1 bg-transparent py-3.5 text-[14px] text-marble outline-none placeholder:text-marble/45 focus-visible:outline-none sm:py-4 sm:text-[16px]"
           />
           <button type="submit" disabled={busy} className="btn btn-solid shrink-0 px-4 py-3 disabled:cursor-wait sm:px-6">
             {busy && target === parsed ? "Reading…" : (

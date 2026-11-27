@@ -21,7 +21,9 @@ export type OgDeps = { load?: (address: string) => Promise<PreScoreResult>; font
 
 /**
  * The Pre-Score card as a PNG response. Never throws on explorer failure: any failed lookup renders the
- * generic "Check your Elysium Pre-Score" card with a 60 s CDN TTL; a font problem falls back to the bundled sans.
+ * generic "Check your Elysium Pre-Score" card with a 60 s CDN TTL. A degraded card (brand fonts missing, so
+ * the bundled sans was used, or a fallback render) also gets the 60 s failure TTL, so the CDN does not keep
+ * it for 5+ minutes once the fonts are back.
  */
 export async function preScoreCardResponse(address: string, requestOrigin: string, deps: OgDeps = {}): Promise<Response> {
   let result: PreScoreResult;
@@ -32,19 +34,20 @@ export async function preScoreCardResponse(address: string, requestOrigin: strin
   }
   const model = cardModel(result);
   const host = displayHost(model.siteUrl || cleanOrigin(requestOrigin));
-  const fonts = await (deps.fonts ?? getOgFonts)().catch(() => null);
+  const fonts = await (deps.fonts ?? (() => getOgFonts()))().catch(() => null);
 
   let body: ArrayBuffer;
-  let cache = cacheControlFor(result, CACHE_OG_FAIL);
+  let degraded = !fonts;
   try {
     body = await png(model, host, fonts);
   } catch {
+    degraded = true;
     try {
       body = await png(model, host, null);
     } catch {
       body = await png({ ...model, variant: "generic", shortAddress: "", traits: [] }, host, null);
-      cache = CACHE_OG_FAIL;
     }
   }
+  const cache = degraded ? CACHE_OG_FAIL : cacheControlFor(result, CACHE_OG_FAIL);
   return new Response(body, { status: 200, headers: { "content-type": "image/png", "cache-control": cache } });
 }

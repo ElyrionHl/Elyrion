@@ -22,21 +22,26 @@ export function parseFontCss(css: string): { name: string; style: "normal" | "it
   return out;
 }
 
-async function load(): Promise<OgFont[] | null> {
+export type OgFontDeps = { fetch?: typeof fetch; now?: () => number };
+
+/** After a failed load, skip fetching for this long so a Google Fonts outage costs nothing per request. */
+export const FONT_RETRY_MS = 60_000;
+
+async function load(f: typeof fetch): Promise<OgFont[] | null> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
   try {
     // A plain user agent makes Google serve TrueType, which Satori can read (it cannot read woff2).
-    const css = await fetch(CSS_URL, { signal: ctl.signal, headers: { "user-agent": "node" } }).then((r) =>
+    const css = await f(CSS_URL, { signal: ctl.signal, headers: { "user-agent": "node" } }).then((r) =>
       r.ok ? r.text() : Promise.reject(new Error(`fonts css ${r.status}`)),
     );
     const faces = parseFontCss(css);
     if (faces.length < 3) return null;
     return await Promise.all(
-      faces.map(async (f) => {
-        const res = await fetch(f.url, { signal: ctl.signal });
+      faces.map(async (face) => {
+        const res = await f(face.url, { signal: ctl.signal });
         if (!res.ok) throw new Error(`font ${res.status}`);
-        return { name: f.name, style: f.style, weight: f.weight, data: await res.arrayBuffer() };
+        return { name: face.name, style: face.style, weight: face.weight, data: await res.arrayBuffer() };
       }),
     );
   } catch {
@@ -46,12 +51,27 @@ async function load(): Promise<OgFont[] | null> {
   }
 }
 
-export function getOgFonts(): Promise<OgFont[] | null> {
+let failedAt: number | null = null;
+
+/** Brand fonts, loaded once per instance. A failure is remembered for FONT_RETRY_MS (returns null at once). */
+export function getOgFonts(deps: OgFontDeps = {}): Promise<OgFont[] | null> {
+  const now = deps.now ?? Date.now;
+  if (!cached && failedAt !== null && now() - failedAt < FONT_RETRY_MS) return Promise.resolve(null);
   if (!cached) {
-    cached = load().then((fonts) => {
-      if (!fonts) cached = null; // retry on a later request
+    cached = load(deps.fetch ?? fetch).then((fonts) => {
+      if (fonts) failedAt = null;
+      else {
+        failedAt = now();
+        cached = null;
+      }
       return fonts;
     });
   }
   return cached;
+}
+
+/** Test hook: forget loaded fonts and any remembered failure. */
+export function resetOgFonts() {
+  cached = null;
+  failedAt = null;
 }

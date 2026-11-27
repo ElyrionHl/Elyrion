@@ -96,8 +96,10 @@ export function scoreUrl(origin: string, address: string): string {
   return `${cleanOrigin(origin)}/score/${address.toLowerCase()}`;
 }
 
-export function xIntentUrl(text: string, url: string): string {
-  return `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+/** X post intent. Without an absolute `url` (no site origin known yet) it still works, with the text alone. */
+export function xIntentUrl(text: string, url?: string): string {
+  const base = `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
+  return /^https?:\/\//i.test(url ?? "") ? `${base}&url=${encodeURIComponent(url!)}` : base;
 }
 
 /** "elyrion-prescore-0x0729-97f7.png" (no ellipsis in file names). */

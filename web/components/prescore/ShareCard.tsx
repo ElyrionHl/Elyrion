@@ -119,7 +119,8 @@ export function ShareCard({ address, total, tier, traits }: { address: string; t
   }, []);
 
   const url = origin ? scoreUrl(origin, address) : "";
-  const xHref = url ? xIntentUrl(shareText(total, tier), url) : undefined;
+  // Server render / first paint: NEXT_PUBLIC_SITE_URL when set, else a text-only intent until the origin is known.
+  const xHref = xIntentUrl(shareText(total, tier), url || undefined);
 
   const download = async () => {
     setDl("busy");
@@ -213,7 +214,6 @@ export function ShareCard({ address, total, tier, traits }: { address: string; t
           href={xHref}
           target="_blank"
           rel="noopener noreferrer"
-          aria-disabled={xHref ? undefined : true}
           className="btn btn-solid"
         >
           Share on X

@@ -160,7 +160,7 @@ export function ScoreReveal({ result }: { result: WalletResult }) {
               </p>
             </Rv>
             <Rv ready={done} delay={0.16}>
-              <h1 id="prescore-result" className="display mt-4 text-[64px] sm:text-[88px] lg:text-[104px]">
+              <h1 id="prescore-result" tabIndex={-1} className="display mt-4 text-[64px] sm:text-[88px] lg:text-[104px]">
                 <span className="sr-only">Pre-Score {score.total}: </span>
                 <em>{score.tier}</em>
               </h1>

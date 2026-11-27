@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { shortAddr } from "@/lib/format";
 import type { PreScoreResult } from "@/lib/prescore/service";
 import { ContractNotice } from "./ContractNotice";
@@ -18,6 +18,15 @@ export function ScoreUnavailable({ address, reason }: { address: string; reason:
   const [busy, setBusy] = useState(false);
   const [tries, setTries] = useState(0);
   const [fresh, setFresh] = useState<WalletResult | { kind: "contract"; address: string } | null>(null);
+
+  // After a successful Retry the page content is replaced: move focus to the new heading.
+  useEffect(() => {
+    if (!fresh) return;
+    const raf = requestAnimationFrame(() =>
+      document.getElementById(fresh.kind === "wallet" ? "prescore-result" : "prescore-contract")?.focus(),
+    );
+    return () => cancelAnimationFrame(raf);
+  }, [fresh]);
 
   if (fresh?.kind === "wallet") return <ScoreReveal result={fresh} />;
   if (fresh?.kind === "contract") return <ContractNotice address={fresh.address} />;

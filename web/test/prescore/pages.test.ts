@@ -1,11 +1,11 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { NAV_LINKS } from "../../components/brand/Nav";
 import { PRESCORE_COUNTING_RULE, PRESCORE_PARTS, PRESCORE_TIERS } from "../../lib/docs-copy";
 import { cardModel } from "../../lib/prescore/card";
 import { DISCLAIMER, TIER_BOUNDS } from "../../lib/prescore/constants";
-import { parseFontCss } from "../../lib/prescore/og-fonts";
+import { FONT_RETRY_MS, getOgFonts, parseFontCss, resetOgFonts, type OgFont } from "../../lib/prescore/og-fonts";
 import { preScoreCardResponse } from "../../lib/prescore/og-render";
 import type { Metrics } from "../../lib/prescore/metrics";
 import { scoreMetrics } from "../../lib/prescore/score";
@@ -104,6 +104,15 @@ describe("share", () => {
     expect(intent.searchParams.get("text")).toBe(shareText(612, "Hero"));
     expect(intent.searchParams.get("url")).toBe(url);
   });
+  it("the X link works before the origin is known (server render without NEXT_PUBLIC_SITE_URL)", () => {
+    const textOnly = new URL(xIntentUrl(shareText(0, "Wanderer")));
+    expect(textOnly.origin + textOnly.pathname).toBe("https://x.com/intent/post");
+    expect(textOnly.searchParams.get("text")).toBe(shareText(0, "Wanderer"));
+    expect(textOnly.searchParams.has("url")).toBe(false);
+    expect(new URL(xIntentUrl("t", "/score/0x")).searchParams.has("url")).toBe(false);
+    const card = src("components", "prescore", "ShareCard.tsx");
+    expect(card).toContain("const xHref = xIntentUrl(shareText(total, tier), url || undefined);");
+  });
   it("names the PNG without an ellipsis and cleans origins", () => {
     expect(pngFilename(ADDR)).toBe("elyrion-prescore-0x0729-97f7.png");
     expect(cleanOrigin(" https://elyrion.example// ")).toBe("https://elyrion.example");
@@ -134,26 +143,63 @@ describe("og card", () => {
     expect(png(await res.arrayBuffer())).toEqual([0x89, 0x50, 0x4e, 0x47]);
   }, 30_000);
 
+  // A real TTF (bundled with next/og) registered under the brand family names: a full-quality render.
+  const ttf = readFileSync(join(ROOT, "node_modules", "next", "dist", "compiled", "@vercel", "og", "Geist-Regular.ttf"));
+  const data = ttf.buffer.slice(ttf.byteOffset, ttf.byteOffset + ttf.byteLength) as ArrayBuffer;
+  const brandFonts = async (): Promise<OgFont[]> => [
+    { name: "Instrument Serif", data, weight: 400, style: "normal" },
+    { name: "Instrument Serif", data, weight: 400, style: "italic" },
+    { name: "JetBrains Mono", data, weight: 400, style: "normal" },
+  ];
+  const m = metrics();
+  const wallet = (partial: boolean): PreScoreResult => ({
+    ok: true,
+    kind: "wallet",
+    address: ADDR,
+    score: scoreMetrics(m),
+    metrics: m,
+    traits: [{ id: "collector", label: "Collector" }],
+    profile: "x",
+    agents: [],
+    partial,
+    computedAt: 0,
+  });
+
   it("uses the success TTL for a score and the short TTL for a partial one", async () => {
-    const m = metrics();
-    const wallet = (partial: boolean): PreScoreResult => ({
-      ok: true,
-      kind: "wallet",
-      address: ADDR,
-      score: scoreMetrics(m),
-      metrics: m,
-      traits: [{ id: "collector", label: "Collector" }],
-      profile: "x",
-      agents: [],
-      partial,
-      computedAt: 0,
-    });
-    const full = await preScoreCardResponse(ADDR, "", { load: async () => wallet(false), fonts: noFonts });
+    const full = await preScoreCardResponse(ADDR, "", { load: async () => wallet(false), fonts: brandFonts });
     expect(full.headers.get("cache-control")).toBe("public, s-maxage=300, stale-while-revalidate=600");
     expect(png(await full.arrayBuffer())).toEqual([0x89, 0x50, 0x4e, 0x47]);
-    const partial = await preScoreCardResponse(ADDR, "", { load: async () => wallet(true), fonts: noFonts });
+    const partial = await preScoreCardResponse(ADDR, "", { load: async () => wallet(true), fonts: brandFonts });
     expect(partial.headers.get("cache-control")).toBe("public, s-maxage=60, stale-while-revalidate=120");
   }, 30_000);
+
+  it("a degraded card (no brand fonts, or a fallback render) gets the 60 s failure TTL", async () => {
+    const noBrand = await preScoreCardResponse(ADDR, "", { load: async () => wallet(false), fonts: noFonts });
+    expect(noBrand.headers.get("cache-control")).toBe("public, s-maxage=60");
+    expect(png(await noBrand.arrayBuffer())).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    // Unreadable font data makes the first render throw; the fallback render still answers, short-lived.
+    const broken = async (): Promise<OgFont[]> => [{ name: "JetBrains Mono", data: new ArrayBuffer(8), weight: 400, style: "normal" }];
+    const fallback = await preScoreCardResponse(ADDR, "", { load: async () => wallet(false), fonts: broken });
+    expect(fallback.status).toBe(200);
+    expect(fallback.headers.get("cache-control")).toBe("public, s-maxage=60");
+    expect(png(await fallback.arrayBuffer())).toEqual([0x89, 0x50, 0x4e, 0x47]);
+  }, 30_000);
+
+  it("remembers a font-load failure for 60 s instead of refetching on every request", async () => {
+    resetOgFonts();
+    let t = 1_000_000;
+    const now = () => t;
+    const failing = vi.fn(async () => new Response("down", { status: 503 })) as unknown as typeof fetch;
+    expect(await getOgFonts({ fetch: failing, now })).toBeNull();
+    expect(failing).toHaveBeenCalledTimes(1);
+    t += FONT_RETRY_MS - 1;
+    expect(await getOgFonts({ fetch: failing, now })).toBeNull();
+    expect(failing).toHaveBeenCalledTimes(1); // skipped during the window
+    t += 1;
+    expect(await getOgFonts({ fetch: failing, now })).toBeNull();
+    expect(failing).toHaveBeenCalledTimes(2); // retried after it
+    resetOgFonts();
+  });
 
   it("reads TrueType faces from Google Fonts css", () => {
     const css = `@font-face { font-family: 'Instrument Serif'; font-style: italic; font-weight: 400; src: url(https://fonts.gstatic.com/s/a/v5/x.ttf) format('truetype'); }
@@ -218,6 +264,10 @@ describe("pages and chrome", () => {
     expect(page).toContain("<ScoreUnavailable");
     expect(src("components", "prescore", "ContractNotice.tsx")).toContain("Pre-Score is for <em>wallets</em>.");
     expect(src("components", "prescore", "ScoreUnavailable.tsx")).toContain("router.refresh()");
+    // After a successful Retry, focus moves to the new heading.
+    expect(src("components", "prescore", "ScoreUnavailable.tsx")).toContain('"prescore-result" : "prescore-contract")?.focus()');
+    expect(src("components", "prescore", "ScoreReveal.tsx")).toContain('id="prescore-result" tabIndex={-1}');
+    expect(src("components", "prescore", "ContractNotice.tsx")).toContain('id="prescore-contract" tabIndex={-1}');
   });
 
   it("badge only for registered agents, linking the agent's real credit profile", () => {
