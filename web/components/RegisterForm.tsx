@@ -7,6 +7,7 @@ import { useConfig, useWriteContract } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { GateLogo } from "@/components/brand/GateLogo";
 import { useElysiumWallet } from "@/components/ConnectButton";
+import { TxLink } from "@/components/TxUi";
 import {
   buildAgentURI,
   DESCRIPTION_MAX,
@@ -18,7 +19,7 @@ import {
 } from "@/lib/agent-uri";
 import { identityAbi } from "@/lib/abi/ElyrionIdentity";
 import { poolAbi } from "@/lib/abi/ElyrionPool";
-import { elysium, explorerTxUrl } from "@/lib/chain";
+import { elysium } from "@/lib/chain";
 import { humanizeError, MSG_NOT_CONFIGURED, MSG_WRONG_CHAIN } from "@/lib/tx-errors";
 
 /** $5 starter line (USDC, 6 decimals). */
@@ -28,19 +29,6 @@ type Phase = "idle" | "reg-sign" | "reg-confirm" | "line-sign" | "line-confirm";
 
 const EMPTY: RegistrationInput = { name: "", description: "", endpoint: "" };
 const chars = (s: string) => [...s].length;
-
-function TxLink({ hash, children }: { hash: Hash; children: ReactNode }) {
-  return (
-    <a
-      href={explorerTxUrl(hash)}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="num inline-flex items-center gap-1.5 text-[12.5px] text-gold underline decoration-gold/40 underline-offset-4 transition-colors duration-500 hover:text-marble hover:decoration-marble/60"
-    >
-      {children} ↗
-    </a>
-  );
-}
 
 function Field({
   id,

@@ -6,14 +6,22 @@ export const MSG_WRONG_CHAIN = "Your wallet is on another network. Switch to Ely
 export const MSG_REJECTED = "You rejected the request in your wallet. Nothing was sent.";
 export const MSG_NOT_CONFIGURED = "Contracts not deployed yet.";
 
-/** Contract custom errors (ElyrionIdentity / ElyrionPool) a register or line request can hit. */
-const REVERTS: Record<string, string> = {
+/** Contract custom errors (ElyrionIdentity / ElyrionPool / USDC) mapped to sentences. */
+const BASE_REVERTS: Record<string, string> = {
   NotAgentOwner: "Only the agent's owner can do this. Connect the wallet that owns the agent.",
   AgentDefaulted: "This agent has defaulted. Its line cannot be requested again.",
   LineActive: "This agent already has an open line.",
   BadAmount: "That line amount is not allowed.",
   Paused: "The pool is paused right now. Try again later.",
   ERC721NonexistentToken: "That agent does not exist.",
+  CapExceeded: "That deposit would pass the pool's caps ($1,000 per wallet, $10,000 total).",
+  InsufficientLiquidity: "Not enough idle USDC in the pool right now; some is lent out. Try a smaller amount or wait for repayments.",
+  NoPendingRequest: "This agent has no pending line request any more.",
+  NotBacker: "Only this line's backer or the agent's owner can close it.",
+  NoLine: "This agent has no open line.",
+  OpenLoan: "This agent has an open loan. The line can be closed after it is repaid.",
+  ERC20InsufficientBalance: "Not enough USDC in this wallet.",
+  ERC20InsufficientAllowance: "The USDC approval is too low for this amount. Approve again and retry.",
 };
 
 interface ErrLike {
@@ -40,8 +48,12 @@ function chain(err: unknown): ErrLike[] {
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
-/** Maps an error thrown by connect / switchChain / writeContract / waitForTransactionReceipt to a sentence. */
-export function humanizeError(err: unknown): string {
+/**
+ * Maps an error thrown by connect / switchChain / writeContract / waitForTransactionReceipt to a sentence.
+ * `overrides` replaces the sentence for specific contract errors (e.g. BadAmount on the lend page).
+ */
+export function humanizeError(err: unknown, overrides: Record<string, string> = {}): string {
+  const REVERTS = { ...BASE_REVERTS, ...overrides };
   const links = chain(err);
   for (const e of links) {
     const name = str(e.name);

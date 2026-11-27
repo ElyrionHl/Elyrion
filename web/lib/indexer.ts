@@ -1,6 +1,7 @@
 import type { Address, Hash, PublicClient } from "viem";
 import { makePublicClient } from "./chain";
 import { identityAbi, poolAbi, readConfig, type ContractConfig } from "./contracts";
+import { byPosition, eventsOf, fetchLogs, type Ev } from "./logs";
 
 export type AgentStatus = "registered" | "requested" | "active" | "defaulted";
 
@@ -34,9 +35,7 @@ export interface Stats {
   recentEvents: RecentEvent[];
 }
 
-const CHUNK = 10_000n;
 const TTL_MS = 15_000;
-const CONCURRENCY = 4;
 
 const EMPTY_STATS: Stats = {
   ok: false,
@@ -72,48 +71,6 @@ interface Snapshot {
   stats: Stats;
   loans: AgentLoan[];
 }
-
-interface Ev {
-  eventName: string;
-  blockNumber: bigint;
-  logIndex: number;
-  transactionHash?: Hash | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  args: any;
-}
-
-function eventsOf(abi: readonly { type: string; name?: string }[], names: string[]) {
-  return abi.filter((x) => x.type === "event" && x.name && names.includes(x.name));
-}
-
-async function fetchLogs(
-  client: PublicClient,
-  address: Address,
-  events: unknown[],
-  from: bigint,
-  to: bigint,
-): Promise<Ev[]> {
-  const ranges: [bigint, bigint][] = [];
-  for (let s = from; s <= to; s += CHUNK) {
-    const e = s + CHUNK - 1n;
-    ranges.push([s, e > to ? to : e]);
-  }
-  const out: Ev[] = [];
-  for (let i = 0; i < ranges.length; i += CONCURRENCY) {
-    const batch = await Promise.all(
-      ranges.slice(i, i + CONCURRENCY).map(
-        ([fromBlock, toBlock]) =>
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (client as any).getLogs({ address, events, fromBlock, toBlock }) as Promise<Ev[]>,
-      ),
-    );
-    for (const b of batch) out.push(...b);
-  }
-  return out;
-}
-
-const byPosition = (a: Ev, b: Ev) =>
-  a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1;
 
 interface Draft {
   id: bigint;

@@ -2,8 +2,18 @@
   "name": "elyrion",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "scripts": {
-    "test:contracts": "cd contracts && forge test"
+    "test:contracts": "cd contracts && forge test",
+    "house-agent": "tsx scripts/house-agent.ts",
+    "test:scripts": "vitest run --dir scripts",
+    "typecheck:scripts": "tsc -p scripts/tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.7",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
   },
   "packageManager": "pnpm@10.33.4"
 }
