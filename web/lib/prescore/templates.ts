@@ -11,13 +11,18 @@ import type { TraitId } from "./traits";
  * - Numbers only through slots: {firstBlock} {ageDays} {txCount} {activeDays} {tokens} {contracts} {tier}.
  *   A template with a numeric slot is only chosen when that value is at least 2 ({firstBlock}: when known), so
  *   plurals stay correct. Every pool keeps slot-free templates as a fallback.
- * - Counts come from a capped window (latest 1,000 txs), so {txCount} is described as "counted"; it may show "1,000+".
+ * - Counts come from a capped window (latest 1,000 txs / token transfers), so {txCount} is described as "counted".
+ *   When a window was full, older activity is unseen and the count slots show a lower bound ("640+", "1,000+"):
+ *   lines with count slots must read true for "at least N". Burst, Focused and Quiet are not chosen then.
  * - {contracts} counts distinct `to` addresses (wallets included): say "addresses" or "destinations", never "contracts".
  * - The first tx may be incoming, so age is "first seen" / "first entry", not "first step taken".
  * - Openers carry no time or arrival framing ("early", "arrived", "far behind", "knows it well"): any tier opener can
  *   sit next to a Newcomer or a Veteran line. profile.test.ts enforces this with TIME_WORDS.
  * - Calm, precise, a little mythic. No hype, no price or financial language, no judgement of the wallet.
- * - Closers never imply the Pre-Score affects a credit score.
+ * - Closers never imply the Pre-Score affects a credit score. An address that owns a registered agent never gets a
+ *   closer that urges registering one (REGISTER_CLOSERS are left out; AGENT_CLOSERS join the pool).
+ * - A token-only address (token transfers, but no transaction in txlist at all) gets a TOKEN_ONLY_OPENERS line instead
+ *   of a tier opener, never the no-history text: it has a record, just not one of its own transactions.
  */
 
 export const TRAIT_LABELS: Record<TraitId, string> = {
@@ -38,6 +43,19 @@ export const TRAIT_LABELS: Record<TraitId, string> = {
 
 /** Used instead of a tier opener when the address has no history at all (spec §4). */
 export const NO_HISTORY_OPENER = "No footsteps on Elysium yet.";
+
+/**
+ * Opener for an address with token transfers but no transaction at all in txlist (sent or received). Every line must
+ * hold for any such address: tokens may have moved in or out, and it has sent no transaction.
+ */
+export const TOKEN_ONLY_OPENERS: string[] = [
+  "Tokens have moved to or from this address; it has yet to send a transaction of its own.",
+  "Token transfers mark this address on the ledger, but it has sent no transaction of its own.",
+  "The ledger knows this address through token transfers alone.",
+  "Only token transfers touch this address so far. No transaction of its own is on record.",
+  "This address appears in token transfers, not in transactions it sent.",
+  "{tokens} kinds of token have moved to or from this address, and it has sent no transaction itself.",
+];
 
 /** Second sentence for an address with no history. */
 export const EMPTY_LINES: string[] = [
@@ -256,4 +274,23 @@ export const CLOSERS: string[] = [
   "The Pre-Score reads activity only. The credit score belongs to agents registered on Elyrion.",
   "This reading stands on its own. A credit score is earned separately, by a registered agent.",
   "To be scored for credit, an agent must first be registered. The gate is open.",
+];
+
+/** Closers that urge registering an agent: left out when the address already owns one. Each is also in CLOSERS. */
+export const REGISTER_CLOSERS: string[] = [
+  "When you are ready, register an agent to begin a real credit score on Elyrion.",
+  "Nothing here touches a credit score. Register an agent when you want one of your own.",
+  "The registry is open whenever an agent is ready to take its oath.",
+  "To be scored for credit, an agent must first be registered. The gate is open.",
+  "The credit score is a separate path, and it begins with a registered agent.",
+  "This reading moves as the path does. A credit score begins with a registered agent.",
+];
+
+/** Closers for an address that owns at least one registered agent (true for one agent or several). */
+export const AGENT_CLOSERS: string[] = [
+  "An agent owned by this address carries a credit score of its own, kept apart from this reading.",
+  "This reading stands beside the agent credit score, never inside it.",
+  "The agent credit score is earned by promises kept. This reading weighs activity alone.",
+  "A Pre-Score reads activity. The credit score of an agent it owns is a separate record.",
+  "The credit score of an agent it owns lives on Elyrion, untouched by this reading.",
 ];

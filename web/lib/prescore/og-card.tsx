@@ -1,6 +1,6 @@
 // Satori JSX for the 1200×630 Pre-Score card (OG image + "Download PNG"). Inline styles only;
 // every element with more than one child is display:flex. Colours mirror the tokens in app/globals.css.
-import type { CardModel } from "./card";
+import { PARTIAL_LABEL, type CardModel } from "./card";
 
 export const OG_SIZE = { width: 1200, height: 630 } as const;
 
@@ -113,7 +113,24 @@ export function OgCard({ model, host, fonts = FALLBACK }: { model: CardModel; ho
       {scored ? (
         <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "space-between", gap: 48 }}>
           <div style={{ display: "flex", flexDirection: "column", maxWidth: 640 }}>
-            <span style={{ fontSize: 22, letterSpacing: "0.04em", color: C.mute }}>{model.shortAddress}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <span style={{ fontSize: 22, letterSpacing: "0.04em", color: C.mute }}>{model.shortAddress}</span>
+              {model.partial ? (
+                <span
+                  style={{
+                    display: "flex",
+                    border: `1px solid ${C.line}`,
+                    borderRadius: 999,
+                    padding: "6px 14px",
+                    fontSize: 13,
+                    letterSpacing: "0.18em",
+                    color: C.mute,
+                  }}
+                >
+                  {PARTIAL_LABEL}
+                </span>
+              ) : null}
+            </div>
             <span style={{ ...serif, fontStyle: "italic", fontSize: 148, lineHeight: 1, letterSpacing: "-0.02em", color: C.gold, marginTop: 18 }}>
               {model.tier}
             </span>

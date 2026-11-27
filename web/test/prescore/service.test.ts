@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearPreScoreCache, getPreScore } from "../../lib/prescore/service";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearPreScoreCache, getPreScore, isContractCode } from "../../lib/prescore/service";
+import { AGENT_CLOSERS, REGISTER_CLOSERS } from "../../lib/prescore/templates";
 import { cardModel } from "../../lib/prescore/card";
 import { DISCLAIMER } from "../../lib/prescore/constants";
 import type { ExplorerActivity } from "../../lib/prescore/fetch";
@@ -38,7 +39,37 @@ describe("getPreScore", () => {
     const d = { ...base(), isContract: vi.fn(async () => true) };
     const r = await getPreScore(ADDR, d);
     expect(r).toEqual({ ok: true, kind: "contract", address: ADDR });
-    expect(d.fetchData).not.toHaveBeenCalled();
+  });
+
+  it("a contract needs no explorer: a failing explorer still gives the contract notice", async () => {
+    const d = { ...base(), isContract: vi.fn(async () => true), fetchData: vi.fn(async () => { throw new Error("down"); }) };
+    expect(await getPreScore(ADDR, d)).toEqual({ ok: true, kind: "contract", address: ADDR });
+  });
+
+  it("getCode runs in parallel with the explorer fetch", async () => {
+    const order: string[] = [];
+    let releaseCode!: (v: boolean) => void;
+    const d = {
+      ...base(),
+      isContract: vi.fn(() => {
+        order.push("code:start");
+        return new Promise<boolean>((r) => (releaseCode = r));
+      }),
+      fetchData: vi.fn(async () => {
+        order.push("explorer:start");
+        return activity;
+      }),
+    };
+    const p = getPreScore(ADDR, d);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(order).toEqual(["code:start", "explorer:start"]); // the explorer started before getCode answered
+    releaseCode(false);
+    expect((await p).ok).toBe(true);
+  });
+
+  it('RPC failure is reason "rpc", not "explorer"', async () => {
+    const d = { ...base(), isContract: vi.fn(async () => { throw new Error("rpc down"); }) };
+    expect(await getPreScore(ADDR, d)).toEqual({ ok: false, address: ADDR, reason: "rpc" });
   });
 
   it("cache hit and in-flight dedupe make one fetch", async () => {
@@ -54,11 +85,36 @@ describe("getPreScore", () => {
     expect(r.ok && r.kind === "wallet" && r.agents).toEqual([]);
   });
 
-  it("explorer failure gives ok:false and is not cached", async () => {
-    const d = { ...base(), fetchData: vi.fn(async () => { throw new Error("down"); }) };
+  it("explorer failure gives ok:false, remembered for 15 s only", async () => {
+    let t = NOW;
+    const d = { ...base(), now: () => t, fetchData: vi.fn(async () => { throw new Error("down"); }) };
     expect(await getPreScore(ADDR, d)).toEqual({ ok: false, address: ADDR, reason: "explorer" });
+    t = NOW + 14_000;
+    expect(await getPreScore(ADDR, d)).toEqual({ ok: false, address: ADDR, reason: "explorer" });
+    expect(d.fetchData).toHaveBeenCalledTimes(1); // the explorer is not asked again within 15 s
+    t = NOW + 15_001;
     await getPreScore(ADDR, d);
     expect(d.fetchData).toHaveBeenCalledTimes(2);
+  });
+
+  it("an RPC failure is remembered for 15 s too", async () => {
+    let t = NOW;
+    const d = { ...base(), now: () => t, isContract: vi.fn(async () => { throw new Error("rpc down"); }) };
+    await getPreScore(ADDR, d);
+    t = NOW + 10_000;
+    expect((await getPreScore(ADDR, d)).ok).toBe(false);
+    expect(d.isContract).toHaveBeenCalledTimes(1);
+  });
+
+  it("an owner of a registered agent never gets a closer urging registration", async () => {
+    for (let i = 0; i < 60; i++) {
+      clearPreScoreCache();
+      const a = `0x${i.toString(16).padStart(2, "0")}${"5".repeat(38)}`;
+      const w = await getPreScore(a, base()); // base() owns agent #3
+      expect(w.ok && w.kind === "wallet").toBe(true);
+      if (w.ok && w.kind === "wallet") expect(REGISTER_CLOSERS.some((c) => w.profile.endsWith(c)), w.profile).toBe(false);
+    }
+    expect(AGENT_CLOSERS.length).toBeGreaterThanOrEqual(4);
   });
 
   it("partial results are cached 60s, full results 5min", async () => {
@@ -88,6 +144,89 @@ describe("getPreScore", () => {
   });
 });
 
+describe("latency budget (fake timers)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  function never<T>(): Promise<T> {
+    return new Promise<T>(() => {});
+  }
+
+  it('a hanging explorer resolves to reason "explorer" at the 8 s page deadline', async () => {
+    const d = { ...base(), now: () => Date.now(), fetchData: vi.fn(() => never<ExplorerActivity>()) };
+    let settled: unknown = null;
+    void getPreScore(ADDR, d).then((r) => (settled = r));
+    await vi.advanceTimersByTimeAsync(7_999);
+    expect(settled).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toEqual({ ok: false, address: ADDR, reason: "explorer" });
+  });
+
+  it("the OG budget (4.5 s) is shorter, and both callers share one explorer lookup", async () => {
+    const d = { ...base(), now: () => Date.now(), fetchData: vi.fn(() => never<ExplorerActivity>()) };
+    let og: unknown = null;
+    let page: unknown = null;
+    void getPreScore(ADDR, { ...d, deadlineMs: 4500 }).then((r) => (og = r));
+    void getPreScore(ADDR, { ...d, deadlineMs: 8000 }).then((r) => (page = r));
+    await vi.advanceTimersByTimeAsync(4500);
+    expect(og).toMatchObject({ ok: false, reason: "explorer" });
+    expect(page).toBeNull();
+    await vi.advanceTimersByTimeAsync(3500);
+    expect(page).toMatchObject({ ok: false, reason: "explorer" });
+    expect(d.fetchData).toHaveBeenCalledTimes(1);
+  });
+
+  it("a lookup that finishes after a caller's deadline still fills the cache", async () => {
+    let release!: (v: ExplorerActivity) => void;
+    const d = { ...base(), now: () => Date.now(), fetchData: vi.fn(() => new Promise<ExplorerActivity>((r) => (release = r))) };
+    const first = getPreScore(ADDR, { ...d, deadlineMs: 4500 });
+    await vi.advanceTimersByTimeAsync(4500);
+    expect((await first).ok).toBe(false);
+    release(activity);
+    await vi.advanceTimersByTimeAsync(0);
+    const second = await getPreScore(ADDR, d);
+    expect(second.ok && second.kind).toBe("wallet");
+    expect(d.fetchData).toHaveBeenCalledTimes(1);
+  });
+
+  it('getCode that hangs gives reason "rpc" after 3 s', async () => {
+    const d = { ...base(), now: () => Date.now(), isContract: vi.fn(() => never<boolean>()) };
+    let settled: unknown = null;
+    void getPreScore(ADDR, d).then((r) => (settled = r));
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(settled).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toEqual({ ok: false, address: ADDR, reason: "rpc" });
+  });
+
+  it("a slow agent lookup counts as no agents after 1.5 s", async () => {
+    const d = { ...base(), now: () => Date.now(), agentsOf: vi.fn(() => never<{ id: number; score: number }[]>()) };
+    let settled: unknown = null;
+    void getPreScore(ADDR, d).then((r) => (settled = r));
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(settled).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toMatchObject({ ok: true, kind: "wallet", agents: [] });
+  });
+});
+
+describe("isContractCode", () => {
+  it("empty code is a wallet; real bytecode is a contract", () => {
+    expect(isContractCode(undefined)).toBe(false);
+    expect(isContractCode("0x")).toBe(false);
+    expect(isContractCode("0x6080604052")).toBe(true);
+  });
+  it("an EIP-7702 delegation (0xef0100 + 20-byte address, 23 bytes) is a wallet", () => {
+    const delegated = "0xef0100" + "ab".repeat(20);
+    expect((delegated.length - 2) / 2).toBe(23);
+    expect(isContractCode(delegated)).toBe(false);
+    expect(isContractCode(delegated.toUpperCase().replace("0X", "0x"))).toBe(false);
+    // Longer code that merely starts with the prefix is still a contract.
+    expect(isContractCode(delegated + "00")).toBe(true);
+    expect(isContractCode("0xef01" + "ab".repeat(21))).toBe(true);
+  });
+});
+
 describe("cardModel", () => {
   it("score variant", async () => {
     const r = await getPreScore(ADDR, base());
@@ -96,6 +235,12 @@ describe("cardModel", () => {
     expect(c.shortAddress).toBe("0x0729…97f7");
     expect(c.disclaimer).toBe(DISCLAIMER);
     expect(c.traits.length).toBeLessThanOrEqual(3);
+  });
+  it("labels a partial result", async () => {
+    const r = await getPreScore(ADDR, { ...base(), fetchData: vi.fn(async () => ({ ...activity, partial: true })) });
+    expect(cardModel(r)).toMatchObject({ variant: "score", partial: true });
+    clearPreScoreCache();
+    expect(cardModel(await getPreScore(ADDR, base())).partial).toBe(false);
   });
   it("falls back to the generic card on failure", () => {
     const c = cardModel({ ok: false, address: ADDR, reason: "explorer" });

@@ -10,17 +10,20 @@ export type TraitId =
  *
  * early-arrival  firstTs within 3 days after mainnet launch (firstTs <= LAUNCH_TS + 3d; also within 3d before)
  * veteran        ageDays >= 21
- * newcomer       ageDays < 3 (includes no history)
+ * newcomer       first tx known (firstTs !== null) and ageDays < 3; never for no history or tokens-only
  * relentless     txCount >= 300
  * steady         activeDays >= 7 and activeDays >= 50% of days since first tx (ageDays + 1)
- * burst          txCount >= 10 and busiestDayShare >= 0.8 (80%+ of txs on the 2 busiest days)
+ * burst          txCount >= 10 and busiestDayShare >= 0.8 (80%+ of txs on the 2 busiest days); not when windowFull
  * explorer       distinctContracts >= 10
  * collector      distinctTokens >= 8
- * focused        distinctContracts <= 2 and txCount >= 20
+ * focused        distinctContracts <= 2 and txCount >= 20; not when windowFull
  * stable-native  usdcTransfers >= 5
- * quiet          txCount < 5
+ * quiet          txCount < 5; not when windowFull
  * wide-reach     distinctTokens + distinctContracts >= 16
  * loyal          activeDays >= 14
+ *
+ * burst, focused and quiet are upper-bound or share claims: with a full 1,000-tx window older activity is unseen
+ * and could contradict them, so they are suppressed then. The rest are lower bounds and stay true.
  *
  * The brief's "builder-hours" is intentionally not used (time zones are unknown), so there are 13 traits.
  *
@@ -34,7 +37,7 @@ type Def = { id: TraitId; strength: (m: Metrics) => number | null };
 const DEFS: Def[] = [
   {
     id: "newcomer",
-    strength: (m) => (m.ageDays < T.newcomerDays ? 1 - m.ageDays / T.newcomerDays : null),
+    strength: (m) => (m.firstTs !== null && m.ageDays < T.newcomerDays ? 1 - m.ageDays / T.newcomerDays : null),
   },
   {
     id: "early-arrival",
@@ -50,15 +53,15 @@ const DEFS: Def[] = [
         ? 0.6 + 0.3 * ratio(m.activeDays, 14)
         : null,
   },
-  { id: "burst", strength: (m) => (m.txCount >= T.burstMinTxs && m.busiestDayShare >= T.burstShare ? 0.55 + 0.3 * m.busiestDayShare : null) },
+  { id: "burst", strength: (m) => (!m.windowFull && m.txCount >= T.burstMinTxs && m.busiestDayShare >= T.burstShare ? 0.55 + 0.3 * m.busiestDayShare : null) },
   { id: "explorer", strength: (m) => (m.distinctContracts >= T.explorerContracts ? 0.6 + 0.3 * ratio(m.distinctContracts, 25) : null) },
   { id: "collector", strength: (m) => (m.distinctTokens >= T.collectorTokens ? 0.6 + 0.3 * ratio(m.distinctTokens, 20) : null) },
   {
     id: "focused",
-    strength: (m) => (m.distinctContracts <= T.focusedMaxContracts && m.txCount >= T.focusedMinTxs ? 0.5 + 0.3 * ratio(m.txCount, 200) : null),
+    strength: (m) => (!m.windowFull && m.distinctContracts <= T.focusedMaxContracts && m.txCount >= T.focusedMinTxs ? 0.5 + 0.3 * ratio(m.txCount, 200) : null),
   },
   { id: "stable-native", strength: (m) => (m.usdcTransfers >= T.stableNativeTransfers ? 0.55 + 0.3 * ratio(m.usdcTransfers, 50) : null) },
-  { id: "quiet", strength: (m) => (m.txCount < T.quietTxs ? 1 - m.txCount / T.quietTxs : null) },
+  { id: "quiet", strength: (m) => (!m.windowFull && m.txCount < T.quietTxs ? 1 - m.txCount / T.quietTxs : null) },
   {
     id: "wide-reach",
     strength: (m) => {

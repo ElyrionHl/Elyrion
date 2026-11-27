@@ -92,14 +92,15 @@ export const PRESCORE_PARTS = [
     part: "Breadth",
     max: 200,
     formula: "200 × min(1, (distinctTokens + distinctContracts) / 15)",
-    note: "",
-    plain: "How widely it reaches: distinct tokens held in transfers plus contracts called.",
+    note: "distinctContracts = distinct addresses it has sent transactions to (wallets included)",
+    plain: "How widely it reaches: distinct tokens in its transfers plus distinct addresses it has sent transactions to.",
   },
 ] as const;
 
 export const PRESCORE_COUNTING_RULE = [
   'Only successful transactions (isError = "0") sent by the address (from = address) count, taken from the latest 1,000 fetched.',
-  'txCount is capped at 1,000 (shown "1,000+"). activeDays and distinctContracts (distinct "to" addresses of those transactions, excluding self-sends) come from the same set.',
+  'activeDays and distinctContracts (the distinct addresses those transactions were sent to, wallets included, excluding self-sends) come from the same set.',
+  'When the explorer returns a full window of 1,000 transactions, older ones are not read: txCount, activeDays and the destination count are then lower bounds, shown with a "+" (for example "640+", or "1,000+" at the cap), and the Burst, Focused and Quiet traits are not given. The same holds for distinctTokens when 1,000 token transfers are returned.',
   "distinctTokens is the number of distinct token contracts in the latest 1,000 token transfers involving the address.",
   "ageDays counts from the address's first transaction of any kind. Each part is rounded down; the total is their sum. No history scores 0.",
 ] as const;

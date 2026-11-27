@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { GateLogo } from "@/components/brand/GateLogo";
 import { shortAddr } from "@/lib/format";
 import { REDUCED_MOTION_QUERY } from "@/lib/motion";
+import { PARTIAL_LABEL, VARIANT_HEADER } from "@/lib/prescore/card";
 import { DISCLAIMER } from "@/lib/prescore/constants";
 import { cleanOrigin, displayHost, pngFilename, scoreUrl, shareText, xIntentUrl } from "@/lib/prescore/view";
 
@@ -59,12 +60,27 @@ function CardRing({ total }: { total: number }) {
  * with a pointer-following 3D tilt (max 8°, global easing; off for coarse pointers and reduced motion),
  * and Share on X / Download PNG / Copy link.
  */
-export function ShareCard({ address, total, tier, traits }: { address: string; total: number; tier: string; traits: string[] }) {
+/** Download PNG saves the image only when the server drew this card (not the generic fallback card). */
+export const DOWNLOAD_VARIANT = "score";
+
+export function ShareCard({
+  address,
+  total,
+  tier,
+  traits,
+  partial = false,
+}: {
+  address: string;
+  total: number;
+  tier: string;
+  traits: string[];
+  partial?: boolean;
+}) {
   const stageRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const [origin, setOrigin] = useState(ENV_SITE);
   const [copied, setCopied] = useState(false);
-  const [dl, setDl] = useState<"idle" | "busy" | "error">("idle");
+  const [dl, setDl] = useState<"idle" | "busy" | "error" | "unavailable">("idle");
 
   useEffect(() => {
     if (ENV_SITE) return;
@@ -129,6 +145,11 @@ export function ShareCard({ address, total, tier, traits }: { address: string; t
       const res = await fetch(`/score/${address}/opengraph-image`);
       const blob = await res.blob();
       if (!res.ok || blob.type !== "image/png") throw new Error("not a png");
+      // The OG route falls back to the generic brand card when the explorer is slow: never save that as "your card".
+      if (res.headers.get(VARIANT_HEADER) !== DOWNLOAD_VARIANT) {
+        setDl("unavailable");
+        return;
+      }
       const href = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = href;
@@ -163,7 +184,7 @@ export function ShareCard({ address, total, tier, traits }: { address: string; t
           ref={cardRef}
           data-tilt="off"
           role="img"
-          aria-label={`Pre-Score card: ${shortAddr(address)}, ${total} of 1000, ${tier}${traits.length ? `, ${traits.join(", ")}` : ""}. ${DISCLAIMER}.`}
+          aria-label={`Pre-Score card: ${shortAddr(address)}, ${total} of 1000, ${tier}${traits.length ? `, ${traits.join(", ")}` : ""}${partial ? ", partial reading" : ""}. ${DISCLAIMER}.`}
           className="prescore-card @container relative aspect-[1200/630] w-full overflow-hidden rounded-[18px] border border-line bg-obsidian"
         >
           <div aria-hidden="true" className="flex size-full flex-col px-[5.4cqw] pt-[4.6cqw] pb-[4cqw]">
@@ -179,7 +200,14 @@ export function ShareCard({ address, total, tier, traits }: { address: string; t
 
             <div className="flex flex-1 items-center justify-between gap-[4cqw]">
               <div className="flex min-w-0 flex-col">
-                <span className="num text-[1.85cqw] text-mute">{shortAddr(address)}</span>
+                <span className="flex items-center gap-[1.3cqw]">
+                  <span className="num text-[1.85cqw] text-mute">{shortAddr(address)}</span>
+                  {partial ? (
+                    <span className="rounded-full border border-line px-[1.15cqw] py-[0.5cqw] font-mono text-[1.08cqw] tracking-[0.18em] text-mute">
+                      {PARTIAL_LABEL}
+                    </span>
+                  ) : null}
+                </span>
                 <span className="mt-[1.5cqw] font-serif text-[12.3cqw] leading-none tracking-[-0.02em] text-gold italic">{tier}</span>
                 {traits.length ? (
                   <span className="mt-[2.8cqw] flex flex-wrap gap-[1cqw]">
@@ -225,7 +253,13 @@ export function ShareCard({ address, total, tier, traits }: { address: string; t
           {copied ? "Link copied" : "Copy link"}
         </button>
         <span aria-live="polite" className="font-mono text-[11px] tracking-[0.06em] text-mute">
-          {dl === "error" ? "The image could not be prepared. Try again." : copied ? <span className="sr-only">Link copied</span> : null}
+          {dl === "error" ? (
+            "The image could not be prepared. Try again."
+          ) : dl === "unavailable" ? (
+            "The card image is not ready yet. Try again in a minute."
+          ) : copied ? (
+            <span className="sr-only">Link copied</span>
+          ) : null}
         </span>
       </div>
     </div>

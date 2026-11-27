@@ -7,9 +7,14 @@ import { ConnectButton } from "@/components/ConnectButton";
 import { shortAddr } from "@/lib/format";
 import { addressInputError, parseAddressInput } from "@/lib/prescore/view";
 
+const EMPTY_MSG = "Paste an address first: 0x followed by 40 characters.";
+const NBSP = String.fromCharCode(0xa0);
+
 /**
  * The Pre-Score search field. A real GET form (`/score?address=…`), so it also works without JS; with JS it
  * validates inline (checksum-insensitive) and routes straight to `/score/<lowercased>`.
+ * The visible hint follows the input as you type; screen readers hear validation only on blur and submit, from a
+ * separate live region, so they are not interrupted on every keystroke.
  */
 export function ScoreSearch() {
   const router = useRouter();
@@ -21,6 +26,7 @@ export function ScoreSearch() {
   const [touched, setTouched] = useState(false);
   const [pending, startTransition] = useTransition();
   const [target, setTarget] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState("");
 
   const parsed = parseAddressInput(value);
   const error = touched ? addressInputError(value) : null;
@@ -31,9 +37,17 @@ export function ScoreSearch() {
     startTransition(() => router.push(`/score/${addr.toLowerCase()}`));
   };
 
+  /** Text for the live region: the current problem, or "" when the value is valid. */
+  const announce = (v: string, submitted: boolean) => {
+    const problem = addressInputError(v) ?? (submitted && !v.trim() ? EMPTY_MSG : null);
+    // Same text twice would not be re-announced: toggle a trailing no-break space.
+    setAnnouncement((prev) => (problem ? (prev === problem ? `${problem}${NBSP}` : problem) : ""));
+  };
+
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setTouched(true);
+    announce(value, true);
     if (parsed) go(parsed);
   };
 
@@ -62,7 +76,11 @@ export function ScoreSearch() {
             placeholder="0x…"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            onBlur={() => value.trim() && setTouched(true)}
+            onBlur={() => {
+              if (!value.trim()) return;
+              setTouched(true);
+              announce(value, false);
+            }}
             aria-invalid={error ? true : undefined}
             aria-describedby={msgId}
             className="num min-w-0 flex-1 bg-transparent py-3.5 text-[14px] text-marble outline-none placeholder:text-marble/45 focus-visible:outline-none sm:py-4 sm:text-[16px]"
@@ -75,11 +93,11 @@ export function ScoreSearch() {
             )}
           </button>
         </div>
-        <p id={msgId} aria-live="polite" className="mt-3 min-h-[18px] font-mono text-[11px] tracking-[0.06em]">
+        <p id={msgId} className="mt-3 min-h-[18px] font-mono text-[11px] tracking-[0.06em]">
           {error ? (
             <span className="text-marble/85">{error}</span>
           ) : emptySubmit ? (
-            <span className="text-marble/85">Paste an address first: 0x followed by 40 characters.</span>
+            <span className="text-marble/85">{EMPTY_MSG}</span>
           ) : parsed ? (
             <span className="inline-flex items-center gap-2 text-gold">
               <span aria-hidden="true" className="size-1.5 rounded-full bg-gold" />
@@ -89,6 +107,9 @@ export function ScoreSearch() {
             <span className="text-mute">Any wallet on Elysium · capitals optional</span>
           )}
         </p>
+        <span role="status" aria-live="polite" className="sr-only">
+          {announcement}
+        </span>
       </form>
 
       <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-3">

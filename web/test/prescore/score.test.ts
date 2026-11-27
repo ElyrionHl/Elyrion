@@ -3,7 +3,7 @@ import { scoreMetrics, tierFor } from "../../lib/prescore/score";
 import type { Metrics } from "../../lib/prescore/metrics";
 
 const base: Metrics = {
-  ageDays: 0, firstBlock: null, firstTs: null, txCount: 0, txCapped: false, activeDays: 0,
+  ageDays: 0, firstBlock: null, firstTs: null, txCount: 0, windowFull: false, tokenWindowFull: false, activeDays: 0,
   distinctContracts: 0, distinctTokens: 0, usdcTransfers: 0, busiestDayShare: 0,
 };
 

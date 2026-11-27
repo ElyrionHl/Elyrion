@@ -64,6 +64,14 @@ describe("api route", () => {
     expect((await res.json()).reason).toBe("explorer");
   });
 
+  it("RPC failure answers 200 with reason rpc and the short failure TTL", async () => {
+    getPreScore.mockResolvedValue({ ok: false, address: ADDR, reason: "rpc" });
+    const res = await GET(req(ADDR));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=30");
+    expect((await res.json()).reason).toBe("rpc");
+  });
+
   it("rate-limits per IP at 20/min", async () => {
     getPreScore.mockResolvedValue({ ok: true, kind: "contract", address: ADDR });
     const ip = "9.9.9.9";

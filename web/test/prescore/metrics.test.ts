@@ -49,13 +49,41 @@ describe("deriveMetrics", () => {
     const recentTxs = Array.from({ length: 1005 }, () => tx({}));
     const m = deriveMetrics({ ...empty, recentTxs }, ME, NOW);
     expect(m.txCount).toBe(1000);
-    expect(m.txCapped).toBe(true);
-    expect(deriveMetrics({ ...empty, recentTxs: recentTxs.slice(0, 5) }, ME, NOW).txCapped).toBe(false);
+    expect(m.windowFull).toBe(true);
+    expect(deriveMetrics({ ...empty, recentTxs: recentTxs.slice(0, 5) }, ME, NOW).windowFull).toBe(false);
+  });
+  it("windowFull: a full 1,000-row txlist window, whoever sent the rows (999 / 1000 / 1001)", () => {
+    const incoming = (n: number) => Array.from({ length: n }, (_, i) => tx({ from: C1, to: ME, timeStamp: String(DAY1 + i) }));
+    const mine = (n: number) => Array.from({ length: n }, (_, i) => tx({ timeStamp: String(DAY1 + i) }));
+    for (const [n, full] of [[999, false], [1000, true], [1001, true]] as const) {
+      const m = deriveMetrics({ ...empty, recentTxs: [...mine(40), ...incoming(n - 40)] }, ME, NOW);
+      expect(m.windowFull, String(n)).toBe(full);
+      expect(m.txCount, String(n)).toBe(40); // only 40 sent, but older ones may exist: a lower bound
+    }
+    // Rows dropped while cleaning do not hide a full window.
+    expect(deriveMetrics({ ...empty, recentTxs: mine(998), recentFetched: 1000 }, ME, NOW).windowFull).toBe(true);
+  });
+  it("tokenWindowFull: a full 1,000-row tokentx window (999 / 1000 / 1001)", () => {
+    const t = (n: number) => Array.from({ length: n }, () => ({ contractAddress: C1, from: C2, to: ME, timeStamp: String(DAY1) }));
+    for (const [n, full] of [[999, false], [1000, true], [1001, true]] as const) {
+      const m = deriveMetrics({ ...empty, tokenTxs: t(n) }, ME, NOW);
+      expect(m.tokenWindowFull, String(n)).toBe(full);
+      expect(m.windowFull).toBe(false);
+    }
+    expect(deriveMetrics({ ...empty, tokenTxs: t(3), tokenFetched: 1000 }, ME, NOW).tokenWindowFull).toBe(true);
+  });
+  it("firstBlock is null unless the block number is plain digits", () => {
+    for (const bad of ["", "0x1f", "12.5", "-3", "1e5", "abc", " 12"]) {
+      const m = deriveMetrics({ ...empty, firstTx: tx({ blockNumber: bad }) }, ME, NOW);
+      expect(m.firstBlock, bad).toBeNull();
+      expect(m.firstTs).toBe(DAY1);
+    }
+    expect(deriveMetrics({ ...empty, firstTx: tx({ blockNumber: "252101" }) }, ME, NOW).firstBlock).toBe(252101);
   });
   it("no history gives zeros", () => {
     const m = deriveMetrics(empty, ME, NOW);
     expect(m).toEqual({
-      ageDays: 0, firstBlock: null, firstTs: null, txCount: 0, txCapped: false, activeDays: 0,
+      ageDays: 0, firstBlock: null, firstTs: null, txCount: 0, windowFull: false, tokenWindowFull: false, activeDays: 0,
       distinctContracts: 0, distinctTokens: 0, usdcTransfers: 0, busiestDayShare: 0,
     });
   });

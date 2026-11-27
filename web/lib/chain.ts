@@ -21,8 +21,9 @@ export function getRpcUrl(): string {
  */
 export const RPC_BATCH = { batchSize: 100 } as const;
 
-export function makePublicClient() {
-  return createPublicClient({ chain: elysium, transport: http(getRpcUrl(), { batch: RPC_BATCH }) });
+/** `timeout` (ms) and `retryCount` override viem's defaults (10 s, 3 retries), e.g. for a latency-bounded read. */
+export function makePublicClient(opts: { timeout?: number; retryCount?: number } = {}) {
+  return createPublicClient({ chain: elysium, transport: http(getRpcUrl(), { batch: RPC_BATCH, ...opts }) });
 }
 
 /** Explorer page for an address. */

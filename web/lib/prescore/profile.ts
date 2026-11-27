@@ -1,14 +1,17 @@
 import { MAX_TXS } from "./constants";
 import type { Metrics } from "./metrics";
 import type { Tier } from "./score";
-import { CLOSERS, EMPTY_LINES, NO_HISTORY_OPENER, OPENERS, TRAIT_LINES } from "./templates";
+import {
+  AGENT_CLOSERS, CLOSERS, EMPTY_LINES, NO_HISTORY_OPENER, OPENERS, REGISTER_CLOSERS, TOKEN_ONLY_OPENERS, TRAIT_LINES,
+} from "./templates";
 import type { TraitId } from "./traits";
 
 export const PROFILE_MAX_CHARS = 280;
 
 const SLOT_RE = /\{(\w+)\}/g;
 const fmt = new Intl.NumberFormat("en-US");
-const count = (n: number, capped = false) => (capped || n >= MAX_TXS ? `${fmt.format(MAX_TXS)}+` : fmt.format(n));
+/** A count from a full 1,000-row window is a lower bound: "640+", "1,000+". */
+const count = (n: number, windowFull: boolean) => (windowFull || n >= MAX_TXS ? `${fmt.format(Math.min(n, MAX_TXS))}+` : fmt.format(n));
 
 /** Slot names used by a template, in order. */
 export function slotsIn(template: string): string[] {
@@ -19,10 +22,10 @@ function slotValue(slot: string, m: Metrics, tier: Tier): string | null {
   switch (slot) {
     case "firstBlock": return m.firstBlock === null ? null : fmt.format(m.firstBlock);
     case "ageDays": return fmt.format(m.ageDays);
-    case "txCount": return count(m.txCount, m.txCapped);
-    case "activeDays": return count(m.activeDays);
-    case "tokens": return count(m.distinctTokens);
-    case "contracts": return count(m.distinctContracts);
+    case "txCount": return count(m.txCount, m.windowFull);
+    case "activeDays": return count(m.activeDays, m.windowFull);
+    case "tokens": return count(m.distinctTokens, m.tokenWindowFull);
+    case "contracts": return count(m.distinctContracts, m.windowFull);
     case "tier": return tier;
     default: return null;
   }
@@ -93,26 +96,46 @@ function pick(pool: string[], m: Metrics, rand: () => number, used: { slots: Set
   return chosen;
 }
 
+export type ProfileOptions = {
+  /** The address owns a registered agent: closers that urge registering one are left out. */
+  hasAgent?: boolean;
+};
+
+/** Closer pool: without an agent every closer; with one, the neutral closers plus agent-aware ones. */
+export function closersFor(hasAgent: boolean): string[] {
+  return hasAgent ? [...CLOSERS.filter((c) => !REGISTER_CLOSERS.includes(c)), ...AGENT_CLOSERS] : CLOSERS;
+}
+
+/** What kind of record the metrics describe, which decides the opener pool. */
+export function recordKind(m: Metrics): "empty" | "token-only" | "active" {
+  if (m.firstTs !== null || m.firstBlock !== null || m.txCount > 0) return "active";
+  return m.distinctTokens > 0 ? "token-only" : "empty";
+}
+
 /**
  * Deterministic profile text: 1 opener + lines for the first 1–2 traits + 1 closer, ≤ 280 chars.
  * The same address (any case, surrounding spaces ignored) always gets the same text for the same data.
+ * No history at all: the no-history opener and an empty-record line. Token transfers but no transaction of its own
+ * (txlist empty): a token-only opener instead of a tier opener, then the trait lines (no footsteps framing).
  */
-export function buildProfile(address: string, tier: Tier, traits: TraitId[], m: Metrics): string {
+export function buildProfile(address: string, tier: Tier, traits: TraitId[], m: Metrics, opts: ProfileOptions = {}): string {
   const rand = prng(fnv1a(address.trim().toLowerCase()));
   const used = { slots: new Set<string>(), motifs: new Set<string>() };
   const fill = (s: string) => fillSlots(s, m, tier);
+  const closers = closersFor(!!opts.hasAgent);
+  const kind = recordKind(m);
 
-  if (m.firstTs === null && m.firstBlock === null && m.txCount === 0) {
+  if (kind === "empty") {
     used.motifs.add("footsteps");
     const line = pick(EMPTY_LINES, m, rand, used);
-    const closer = pick(CLOSERS, m, rand, used);
+    const closer = pick(closers, m, rand, used);
     return [NO_HISTORY_OPENER, fill(line), fill(closer)].join(" ");
   }
 
-  const opener = pick(OPENERS[tier], m, rand, used);
+  const opener = pick(kind === "token-only" ? TOKEN_ONLY_OPENERS : OPENERS[tier], m, rand, used);
   if (opener.includes(tier)) used.slots.add("tier"); // avoid "The Hero tier…" after a Hero opener
   const lines = traits.slice(0, 2).map((id) => pick(TRAIT_LINES[id], m, rand, used));
-  const closer = pick(CLOSERS, m, rand, used);
+  const closer = pick(closers, m, rand, used);
 
   // Drop the second trait line, then the first, if the text would run long.
   for (let n = lines.length; n >= 0; n--) {

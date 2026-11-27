@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { NAV_LINKS } from "../../components/brand/Nav";
 import { PRESCORE_COUNTING_RULE, PRESCORE_PARTS, PRESCORE_TIERS } from "../../lib/docs-copy";
-import { cardModel } from "../../lib/prescore/card";
+import { cardModel, PARTIAL_LABEL, VARIANT_HEADER } from "../../lib/prescore/card";
 import { DISCLAIMER, TIER_BOUNDS } from "../../lib/prescore/constants";
 import { FONT_RETRY_MS, getOgFonts, parseFontCss, resetOgFonts, type OgFont } from "../../lib/prescore/og-fonts";
 import { preScoreCardResponse } from "../../lib/prescore/og-render";
@@ -22,6 +22,7 @@ import {
   scoreUrl,
   shareText,
   txCountLabel,
+  windowNote,
   xIntentUrl,
 } from "../../lib/prescore/view";
 
@@ -34,7 +35,7 @@ const metrics = (o: Partial<Metrics> = {}): Metrics => ({
   firstBlock: 252101,
   firstTs: 1794300000,
   txCount: 42,
-  txCapped: false,
+  windowFull: false, tokenWindowFull: false,
   activeDays: 5,
   distinctContracts: 3,
   distinctTokens: 14,
@@ -63,10 +64,20 @@ describe("reading sequence", () => {
     expect(readingLines(metrics())).toEqual(["READING 42 TRANSACTIONS", "FIRST FOOTSTEP · BLOCK 252,101", "WEIGHING 14 TOKENS"]);
   });
   it('shows "1,000+" when the fetch window is full, singulars, and no invented block', () => {
-    expect(readingLines(metrics({ txCount: 1000, txCapped: true }))[0]).toBe("READING 1,000+ TRANSACTIONS");
-    expect(txCountLabel({ txCount: 1000, txCapped: true })).toBe("1,000+");
-    const empty = readingLines(metrics({ txCount: 1, firstBlock: null, distinctTokens: 1 }));
-    expect(empty).toEqual(["READING 1 TRANSACTION", "NO FOOTSTEPS YET", "WEIGHING 1 TOKEN"]);
+    expect(readingLines(metrics({ txCount: 1000, windowFull: true }))[0]).toBe("READING 1,000+ TRANSACTIONS");
+    expect(txCountLabel({ txCount: 1000, windowFull: true })).toBe("1,000+");
+    const empty = readingLines(metrics({ txCount: 1, firstBlock: null, firstTs: null, distinctTokens: 1 }));
+    expect(empty).toEqual(["READING 1 TRANSACTION", "NO TRANSACTION OF ITS OWN YET", "WEIGHING 1 TOKEN"]);
+    const none = readingLines(metrics({ txCount: 0, firstBlock: null, firstTs: null, distinctTokens: 0 }));
+    expect(none).toEqual(["READING 0 TRANSACTIONS", "NO FOOTSTEPS YET", "WEIGHING 0 TOKENS"]);
+    // A first tx with an unusable block number still has a first footstep.
+    expect(readingLines(metrics({ firstBlock: null }))[1]).toBe("FIRST FOOTSTEP · 12 DAYS AGO");
+  });
+  it("a full window shows its counts as lower bounds (999 / 1000 / 1001 rows read)", () => {
+    expect(readingLines(metrics({ txCount: 640, windowFull: true }))[0]).toBe("READING 640+ TRANSACTIONS");
+    expect(readingLines(metrics({ txCount: 1, windowFull: true }))[0]).toBe("READING 1+ TRANSACTIONS");
+    expect(readingLines(metrics({ distinctTokens: 14, tokenWindowFull: true }))[2]).toBe("WEIGHING 14+ TOKENS");
+    expect(readingLines(metrics({ txCount: 640 }))[0]).toBe("READING 640 TRANSACTIONS");
   });
   it("is skipped for results older than 10 s (cache)", () => {
     expect(isFresh(1_000_000, 1_005_000)).toBe(true);
@@ -76,7 +87,7 @@ describe("reading sequence", () => {
 
 describe("breakdown", () => {
   it("labels points / max with the real metric behind each part", () => {
-    const m = metrics({ txCount: 1000, txCapped: true });
+    const m = metrics({ txCount: 1000, windowFull: true });
     const rows = breakdownRows(scoreMetrics(m), m);
     expect(rows.map((r) => [r.label, r.max])).toEqual([
       ["Longevity", 300],
@@ -87,10 +98,30 @@ describe("breakdown", () => {
     expect(rows.map((r) => r.detail)).toEqual([
       "12 days since the first footstep",
       "1,000+ successful transactions sent",
-      "5 active days (UTC)",
-      "14 tokens · 3 contracts",
+      "5+ active days (UTC)", // from a full window: a lower bound
+      "14 tokens · 3+ addresses sent to",
     ]);
     expect(rows.reduce((a, r) => a + r.points, 0)).toBe(scoreMetrics(m).total);
+  });
+  it("never calls destinations contracts", () => {
+    const rows = breakdownRows(scoreMetrics(metrics({ distinctContracts: 1, distinctTokens: 1 })), metrics({ distinctContracts: 1, distinctTokens: 1 }));
+    expect(rows[3].detail).toBe("1 token · 1 address sent to");
+    for (const r of rows) expect(r.detail).not.toMatch(/contract/i);
+  });
+  it("counts from a full window read as N+ in every row, with a footnote", () => {
+    const m = metrics({ txCount: 640, activeDays: 12, distinctContracts: 8, windowFull: true });
+    expect(breakdownRows(scoreMetrics(m), m).map((r) => r.detail)).toEqual([
+      "12 days since the first footstep",
+      "640+ successful transactions sent",
+      "12+ active days (UTC)",
+      "14 tokens · 8+ addresses sent to",
+    ]);
+    expect(windowNote(m)).toMatch(/latest 1,000 transactions/);
+    expect(windowNote(metrics())).toBeNull();
+    const t = metrics({ tokenWindowFull: true });
+    expect(breakdownRows(scoreMetrics(t), t)[3].detail).toBe("14+ tokens · 3 addresses sent to");
+    expect(windowNote(t)).toMatch(/latest 1,000 token transfers/);
+    expect(src("components", "prescore", "ScoreReveal.tsx")).toContain("windowNote(metrics)");
   });
 });
 
@@ -130,6 +161,15 @@ describe("og card", () => {
   const png = (b: ArrayBuffer) => [...new Uint8Array(b).slice(0, 4)];
   const noFonts = async () => null;
 
+  it("labels a partial reading on the card model, the OG image and the share card", () => {
+    expect(PARTIAL_LABEL).toBe("PARTIAL READING");
+    expect(cardModel({ ok: false, address: ADDR, reason: "explorer" }).partial).toBe(false);
+    expect(src("lib", "prescore", "og-card.tsx")).toMatch(/model\.partial \?[\s\S]*\{PARTIAL_LABEL\}/);
+    expect(src("components", "prescore", "ShareCard.tsx")).toMatch(/partial \?[\s\S]*\{PARTIAL_LABEL\}/);
+    expect(src("components", "prescore", "ScoreReveal.tsx")).toContain("partial={partial}");
+    expect(src("app", "(site)", "score", "[address]", "page.tsx")).toContain("r.partial ? ` · ${PARTIAL_LABEL.toLowerCase()}`");
+  });
+
   it("renders a PNG with the 60 s generic TTL when the explorer lookup throws", async () => {
     const res = await preScoreCardResponse(ADDR, "http://localhost:3000", {
       load: async () => {
@@ -140,6 +180,7 @@ describe("og card", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
     expect(res.headers.get("cache-control")).toBe("public, s-maxage=60");
+    expect(res.headers.get(VARIANT_HEADER)).toBe("generic");
     expect(png(await res.arrayBuffer())).toEqual([0x89, 0x50, 0x4e, 0x47]);
   }, 30_000);
 
@@ -168,6 +209,7 @@ describe("og card", () => {
   it("uses the success TTL for a score and the short TTL for a partial one", async () => {
     const full = await preScoreCardResponse(ADDR, "", { load: async () => wallet(false), fonts: brandFonts });
     expect(full.headers.get("cache-control")).toBe("public, s-maxage=300, stale-while-revalidate=600");
+    expect(full.headers.get(VARIANT_HEADER)).toBe("score");
     expect(png(await full.arrayBuffer())).toEqual([0x89, 0x50, 0x4e, 0x47]);
     const partial = await preScoreCardResponse(ADDR, "", { load: async () => wallet(true), fonts: brandFonts });
     expect(partial.headers.get("cache-control")).toBe("public, s-maxage=60, stale-while-revalidate=120");
@@ -184,6 +226,10 @@ describe("og card", () => {
     expect(fallback.headers.get("cache-control")).toBe("public, s-maxage=60");
     expect(png(await fallback.arrayBuffer())).toEqual([0x89, 0x50, 0x4e, 0x47]);
   }, 30_000);
+
+  it("the OG lookup uses the short OG deadline", () => {
+    expect(src("lib", "prescore", "og-render.tsx")).toContain("getPreScore(a, { deadlineMs: DEADLINE_OG_MS })");
+  });
 
   it("remembers a font-load failure for 60 s instead of refetching on every request", async () => {
     resetOgFonts();
@@ -231,6 +277,15 @@ describe("docs copy", () => {
     expect(rule).toContain("from = address");
     expect(rule).toContain("latest 1,000");
     expect(rule).toContain('"1,000+"');
+    expect(rule).toContain("lower bounds");
+    expect(rule).toMatch(/Burst, Focused and Quiet/);
+  });
+  it("describes distinctContracts as addresses sent to, never as contracts called", () => {
+    const breadth = PRESCORE_PARTS.find((p) => p.part === "Breadth")!;
+    expect(breadth.plain).toContain("addresses it has sent transactions to");
+    expect(breadth.plain).not.toMatch(/contract/i);
+    expect(breadth.note).toContain("wallets included");
+    for (const p of PRESCORE_PARTS) expect(p.plain, p.part).not.toMatch(/contracts? called/i);
   });
 });
 
@@ -256,9 +311,15 @@ describe("pages and chrome", () => {
     expect(src("app", "(site)", "score", "page.tsx")).toContain("{DISCLAIMER}");
   });
 
-  it("result page: revalidate 300, invalid → notFound, contract notice, honest retry", () => {
+  it("result page: no route revalidate, noindex, deadlines, invalid → notFound, contract notice, honest retry", () => {
     const page = src("app", "(site)", "score", "[address]", "page.tsx");
-    expect(page).toContain("export const revalidate = 300;");
+    expect(page).not.toMatch(/export const revalidate/);
+    expect(page).toContain("const ROBOTS: Metadata[\"robots\"] = { index: false };");
+    expect(page).toContain("robots: ROBOTS,");
+    expect(page).toContain("if (!address) return { robots: ROBOTS };");
+    expect(page).toContain("getPreScore(address, { deadlineMs: DEADLINE_PAGE_MS })");
+    expect(page).toContain("getPreScore(address, { deadlineMs: DEADLINE_OG_MS })");
+    expect(page).toMatch(/generateMetadata[\s\S]*loadMeta\(address\)/);
     expect(page).toContain("notFound()");
     expect(page).toContain("<ContractNotice");
     expect(page).toContain("<ScoreUnavailable");
@@ -268,6 +329,33 @@ describe("pages and chrome", () => {
     expect(src("components", "prescore", "ScoreUnavailable.tsx")).toContain('"prescore-result" : "prescore-contract")?.focus()');
     expect(src("components", "prescore", "ScoreReveal.tsx")).toContain('id="prescore-result" tabIndex={-1}');
     expect(src("components", "prescore", "ContractNotice.tsx")).toContain('id="prescore-contract" tabIndex={-1}');
+  });
+
+  it("retry: refreshes the route only after a failed retry, and shows the reason the API gave", () => {
+    const u = src("components", "prescore", "ScoreUnavailable.tsx");
+    expect(u).toContain("if (!answered) startTransition(() => router.refresh());");
+    expect(u).not.toMatch(/finally \{[^}]*router\.refresh/);
+    expect(u).toContain("setRetried({ from: reason, to: body.reason })");
+    expect(u).toContain('"rate-limited": {');
+    expect(u).toContain("Too many readings at once.");
+    expect(u).toContain("The Elysium RPC did not answer.");
+    expect(u).toMatch(/tries > 0 && !working && why !== "rate-limited"/);
+  });
+
+  it("Download PNG saves only the score card the server drew", () => {
+    const card = src("components", "prescore", "ShareCard.tsx");
+    expect(card).toContain('export const DOWNLOAD_VARIANT = "score";');
+    expect(card).toContain("res.headers.get(VARIANT_HEADER) !== DOWNLOAD_VARIANT");
+    expect(card).toContain('setDl("unavailable")');
+    expect(VARIANT_HEADER).toBe("x-prescore-variant");
+  });
+
+  it("search: validation is announced on blur and submit only, not per keystroke", () => {
+    const search = src("components", "prescore", "ScoreSearch.tsx");
+    expect(search).toMatch(/<p id=\{msgId\} className=/); // the visible hint is not a live region
+    expect(search).toContain('<span role="status" aria-live="polite" className="sr-only">');
+    expect(search.match(/announce\(value, (true|false)\)/g)).toEqual(["announce(value, true)", "announce(value, false)"]);
+    expect(search).not.toMatch(/onChange=\{[^}]*announce/);
   });
 
   it("badge only for registered agents, linking the agent's real credit profile", () => {

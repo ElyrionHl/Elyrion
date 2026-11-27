@@ -9,7 +9,7 @@ import { shortAddr } from "@/lib/format";
 import { prefersReducedMotion } from "@/lib/motion";
 import { DISCLAIMER, TIER_BOUNDS } from "@/lib/prescore/constants";
 import type { PreScoreResult } from "@/lib/prescore/service";
-import { breakdownRows, isFresh, readingLines } from "@/lib/prescore/view";
+import { breakdownRows, isFresh, readingLines, windowNote } from "@/lib/prescore/view";
 import { ReadingPanel } from "./ReadingPanel";
 import { ShareCard } from "./ShareCard";
 
@@ -111,6 +111,7 @@ export function ScoreReveal({ result }: { result: WalletResult }) {
 
   const agent = agents.length ? [...agents].sort((a, b) => b.score - a.score)[0] : null;
   const rows = breakdownRows(score, metrics);
+  const note = windowNote(metrics);
   const short = shortAddr(address);
 
   return (
@@ -275,6 +276,11 @@ export function ScoreReveal({ result }: { result: WalletResult }) {
             </li>
           ))}
         </ul>
+        {note ? (
+          <Rv ready={done} delay={0.5}>
+            <p className="mt-4 max-w-[620px] text-[12.5px] leading-relaxed text-mute">{note}</p>
+          </Rv>
+        ) : null}
       </section>
 
       {/* Share */}
@@ -291,7 +297,13 @@ export function ScoreReveal({ result }: { result: WalletResult }) {
             </p>
           </Rv>
           <Rv ready={done} delay={0.1}>
-            <ShareCard address={address} total={score.total} tier={score.tier} traits={traits.slice(0, 3).map((t) => t.label)} />
+            <ShareCard
+              address={address}
+              total={score.total}
+              tier={score.tier}
+              traits={traits.slice(0, 3).map((t) => t.label)}
+              partial={partial}
+            />
           </Rv>
         </div>
       </section>

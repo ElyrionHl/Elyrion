@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildProfile, fillSlots, slotsIn } from "../../lib/prescore/profile";
-import { CLOSERS, EMPTY_LINES, NO_HISTORY_OPENER, OPENERS, TRAIT_LABELS, TRAIT_LINES } from "../../lib/prescore/templates";
-import { TRAIT_IDS, type TraitId } from "../../lib/prescore/traits";
+import { buildProfile, closersFor, fillSlots, recordKind, slotsIn } from "../../lib/prescore/profile";
+import {
+  AGENT_CLOSERS, CLOSERS, EMPTY_LINES, NO_HISTORY_OPENER, OPENERS, REGISTER_CLOSERS, TOKEN_ONLY_OPENERS, TRAIT_LABELS, TRAIT_LINES,
+} from "../../lib/prescore/templates";
+import { detectTraits, TRAIT_IDS, type TraitId } from "../../lib/prescore/traits";
+import { scoreMetrics } from "../../lib/prescore/score";
 import type { Metrics } from "../../lib/prescore/metrics";
 import type { Tier } from "../../lib/prescore/score";
 import { LAUNCH_TS } from "../../lib/prescore/constants";
@@ -10,19 +13,21 @@ const TIERS: Tier[] = ["Wanderer", "Initiate", "Worthy", "Hero", "Immortal"];
 const SLOTS = ["firstBlock", "ageDays", "txCount", "activeDays", "tokens", "contracts", "tier"];
 
 const EMPTY: Metrics = {
-  ageDays: 0, firstBlock: null, firstTs: null, txCount: 0, txCapped: false, activeDays: 0,
+  ageDays: 0, firstBlock: null, firstTs: null, txCount: 0, windowFull: false, tokenWindowFull: false, activeDays: 0,
   distinctContracts: 0, distinctTokens: 0, usdcTransfers: 0, busiestDayShare: 0,
 };
 const LOW: Metrics = {
-  ageDays: 2, firstBlock: 1, firstTs: LAUNCH_TS, txCount: 2, txCapped: false, activeDays: 2,
+  ageDays: 2, firstBlock: 1, firstTs: LAUNCH_TS, txCount: 2, windowFull: false, tokenWindowFull: false, activeDays: 2,
   distinctContracts: 2, distinctTokens: 2, usdcTransfers: 0, busiestDayShare: 1,
 };
 const MID: Metrics = {
-  ageDays: 18, firstBlock: 252101, firstTs: LAUNCH_TS, txCount: 140, txCapped: false, activeDays: 9,
+  ageDays: 18, firstBlock: 252101, firstTs: LAUNCH_TS, txCount: 140, windowFull: false, tokenWindowFull: false, activeDays: 9,
   distinctContracts: 12, distinctTokens: 6, usdcTransfers: 7, busiestDayShare: 0.4,
 };
+// Token transfers, but no transaction at all in txlist (sent or received).
+const TOKEN_ONLY: Metrics = { ...EMPTY, distinctTokens: 9, usdcTransfers: 6 };
 const MAX: Metrics = {
-  ageDays: 99999, firstBlock: 999_999_999, firstTs: LAUNCH_TS, txCount: 1000, txCapped: true, activeDays: 999,
+  ageDays: 99999, firstBlock: 999_999_999, firstTs: LAUNCH_TS, txCount: 1000, windowFull: true, tokenWindowFull: true, activeDays: 999,
   distinctContracts: 1000, distinctTokens: 1000, usdcTransfers: 1000, busiestDayShare: 1,
 };
 
@@ -50,6 +55,8 @@ const allTemplates = (): string[] => [
   ...Object.values(OPENERS).flat(),
   ...Object.values(TRAIT_LINES).flat(),
   ...CLOSERS,
+  ...AGENT_CLOSERS,
+  ...TOKEN_ONLY_OPENERS,
   ...EMPTY_LINES,
   NO_HISTORY_OPENER,
   ...Object.values(TRAIT_LABELS),
@@ -73,7 +80,7 @@ describe("template counts", () => {
     expect(new Set(all).size).toBe(all.length);
   });
   it("every pool keeps at least one slot-free template as a fallback", () => {
-    const pools = [...Object.values(OPENERS), ...Object.values(TRAIT_LINES), CLOSERS, EMPTY_LINES];
+    const pools = [...Object.values(OPENERS), ...Object.values(TRAIT_LINES), CLOSERS, closersFor(true), EMPTY_LINES, TOKEN_ONLY_OPENERS];
     for (const p of pools) expect(p.some((s) => slotsIn(s).length === 0)).toBe(true);
   });
   it("uses only known slots", () => {
@@ -106,7 +113,13 @@ describe("fillSlots", () => {
   });
   it("shows capped counts as 1,000+", () => {
     expect(fillSlots("{txCount} {tokens} {contracts}", MAX, "Immortal")).toBe("1,000+ 1,000+ 1,000+");
-    expect(fillSlots("{txCount}", { ...MID, txCount: 1000, txCapped: true }, "Hero")).toBe("1,000+");
+    expect(fillSlots("{txCount}", { ...MID, txCount: 1000, windowFull: true }, "Hero")).toBe("1,000+");
+  });
+  it("a full window shows every count from it as a lower bound (N+)", () => {
+    const full: Metrics = { ...MID, windowFull: true };
+    expect(fillSlots("{txCount} {activeDays} {contracts} {tokens}", full, "Hero")).toBe("140+ 9+ 12+ 6");
+    expect(fillSlots("{tokens} {txCount}", { ...MID, tokenWindowFull: true }, "Hero")).toBe("6+ 140");
+    expect(fillSlots("{ageDays} {firstBlock}", full, "Hero")).toBe("18 252,101"); // not window counts
   });
   it("shows a dash for a missing first block", () => {
     expect(fillSlots("{firstBlock}", EMPTY, "Wanderer")).toBe("—");
@@ -141,6 +154,58 @@ describe("buildProfile", () => {
     expect(filled(TRAIT_LINES.explorer).some((s) => p.includes(s))).toBe(true);
     expect(filled(TRAIT_LINES.loyal).some((s) => p.includes(s))).toBe(false);
   });
+  it("a token-only address gets a token-only opener, never the no-history text", () => {
+    expect(recordKind(TOKEN_ONLY)).toBe("token-only");
+    expect(recordKind(EMPTY)).toBe("empty");
+    expect(recordKind(MID)).toBe("active");
+    const traits = detectTraits(TOKEN_ONLY);
+    expect(traits).not.toContain("newcomer");
+    const tier = scoreMetrics(TOKEN_ONLY).tier;
+    const openers = TOKEN_ONLY_OPENERS.map((o) => fillSlots(o, TOKEN_ONLY, tier));
+    for (const a of addresses(80, 23)) {
+      for (const hasAgent of [false, true]) {
+        const p = buildProfile(a, tier, traits, TOKEN_ONLY, { hasAgent });
+        expect(openers.some((o) => p.startsWith(o)), p).toBe(true);
+        expect(p, p).not.toMatch(/No footsteps|nothing to weigh|holds no entries|record is blank|first step is still|first mark/i);
+        expect(EMPTY_LINES.some((l) => p.includes(l)), p).toBe(false);
+        expect(p.length).toBeLessThanOrEqual(280);
+        expect(p, p).not.toMatch(/[{}—]/);
+      }
+    }
+    // With one token the {tokens} opener is never chosen (plural stays true).
+    const one: Metrics = { ...TOKEN_ONLY, distinctTokens: 1, usdcTransfers: 0 };
+    for (const a of addresses(40, 29)) expect(buildProfile(a, "Wanderer", ["quiet"], one), a).not.toMatch(/\b1 kinds/);
+  });
+
+  it("token-only openers make no claim the data cannot back", () => {
+    for (const o of TOKEN_ONLY_OPENERS) {
+      expect(o, o).toMatch(/token/i);
+      expect(o, o).not.toMatch(/\b(received|arrived|holds?|balance|footsteps?|newcomer|early|days?)\b/i);
+    }
+  });
+
+  it("an agent owner never gets a closer urging registration; others may", () => {
+    expect(REGISTER_CLOSERS.every((c) => CLOSERS.includes(c))).toBe(true);
+    const pool = closersFor(true);
+    expect(pool.some((c) => REGISTER_CLOSERS.includes(c))).toBe(false);
+    expect(AGENT_CLOSERS.every((c) => pool.includes(c))).toBe(true);
+    for (const c of pool) expect(c, c).not.toMatch(/\bregister (an|your)\b|registry is open|must first be registered|begins with a registered agent/i);
+    let agentCloser = 0;
+    for (const tier of TIERS) {
+      for (const m of [EMPTY, TOKEN_ONLY, LOW, MID, MAX]) {
+        for (const a of addresses(30, 31)) {
+          const p = buildProfile(a, tier, detectTraits(m), m, { hasAgent: true });
+          expect(REGISTER_CLOSERS.some((c) => p.endsWith(fillSlots(c, m, tier))), p).toBe(false);
+          if (AGENT_CLOSERS.some((c) => p.endsWith(c))) agentCloser++;
+        }
+      }
+    }
+    expect(agentCloser).toBeGreaterThan(0);
+    // Without an agent the full pool stays in use.
+    const seen = new Set(addresses(400, 37).map((a) => buildProfile(a, "Worthy", [], MID)));
+    expect([...seen].some((p) => REGISTER_CLOSERS.some((c) => p.endsWith(c)))).toBe(true);
+  });
+
   it("no history reads 'No footsteps on Elysium yet.' and never uses {firstBlock}", () => {
     for (const a of addresses(60)) {
       const p = buildProfile(a, "Wanderer", ["newcomer", "quiet"], EMPTY);
@@ -171,7 +236,7 @@ describe("buildProfile", () => {
     }
   });
   it("shows 1,000+ only for capped counts, and never a bare 1,000 for them", () => {
-    const below: Metrics = { ...MID, txCount: 999, txCapped: false, distinctContracts: 999, distinctTokens: 999, activeDays: 999 };
+    const below: Metrics = { ...MID, txCount: 999, windowFull: false, tokenWindowFull: false, distinctContracts: 999, distinctTokens: 999, activeDays: 999 };
     const traits: TraitId[][] = [["relentless", "explorer"], ["collector", "wide-reach"], ["loyal", "steady"]];
     for (const tier of TIERS) {
       for (const t of traits) {
@@ -215,9 +280,9 @@ describe("buildProfile", () => {
       for (const t1 of TRAIT_IDS) {
         for (const t2 of TRAIT_IDS) {
           if (t1 === t2) continue;
-          for (const m of [EMPTY, LOW, MID, MAX]) {
+          for (const m of [EMPTY, TOKEN_ONLY, LOW, MID, MAX]) {
             for (const a of seeds) {
-              const p = buildProfile(a, tier, [t1, t2] as TraitId[], m);
+              const p = buildProfile(a, tier, [t1, t2] as TraitId[], m, { hasAgent: a === seeds[0] });
               expect(p.length, p).toBeLessThanOrEqual(280);
               expect(p, p).not.toMatch(/[{}]/);
               expect(p, p).not.toMatch(/\s{2}|^\s|\s$/);
@@ -229,9 +294,9 @@ describe("buildProfile", () => {
   });
   it("every opener + any trait line + any closer fits in 280 chars at max values", () => {
     const len = (pool: string[]) => Math.max(...pool.map((s) => fillSlots(s, MAX, "Immortal").length));
-    const opener = Math.max(...TIERS.map((t) => len(OPENERS[t])));
+    const opener = Math.max(...TIERS.map((t) => len(OPENERS[t])), len(TOKEN_ONLY_OPENERS));
     const line = Math.max(...TRAIT_IDS.map((id) => len(TRAIT_LINES[id])));
-    expect(opener + 1 + line + 1 + len(CLOSERS)).toBeLessThanOrEqual(280);
+    expect(opener + 1 + line + 1 + Math.max(len(CLOSERS), len(AGENT_CLOSERS))).toBeLessThanOrEqual(280);
   });
   it("profile with no traits is opener + closer", () => {
     const p = buildProfile(addr, "Initiate", [], MID);
