@@ -32,9 +32,10 @@ export type ServiceDeps = {
 };
 
 export const CACHE_TTL_MS = 5 * 60 * 1000;
+export const PARTIAL_TTL_MS = 60 * 1000;
 const CACHE_MAX = 500;
 
-const cache = new Map<string, { at: number; value: PreScoreResult }>();
+const cache = new Map<string, { at: number; ttl: number; value: PreScoreResult }>();
 const inflight = new Map<string, Promise<PreScoreResult>>();
 
 export function clearPreScoreCache() {
@@ -92,7 +93,7 @@ export async function getPreScore(input: string, deps: ServiceDeps = {}): Promis
   const nowMs = (deps.now ?? Date.now)();
 
   const hit = cache.get(key);
-  if (hit && nowMs - hit.at < CACHE_TTL_MS) return hit.value;
+  if (hit && nowMs - hit.at < hit.ttl) return hit.value;
   const pending = inflight.get(key);
   if (pending) return pending;
 
@@ -100,7 +101,7 @@ export async function getPreScore(input: string, deps: ServiceDeps = {}): Promis
     .then((value) => {
       if (value.ok) {
         if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
-        cache.set(key, { at: nowMs, value });
+        cache.set(key, { at: nowMs, ttl: value.kind === "wallet" && value.partial ? PARTIAL_TTL_MS : CACHE_TTL_MS, value });
       }
       return value;
     })

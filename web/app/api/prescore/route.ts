@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 
 const LIMIT = 20;
 const WINDOW_MS = 60_000;
+const MAX_IPS = 5000;
 const hits = new Map<string, number[]>();
 
 /** Best-effort per-IP limiter (in-memory, per instance). */
@@ -15,8 +16,9 @@ function limited(ip: string, now: number): boolean {
     return true;
   }
   recent.push(now);
+  hits.delete(ip); // re-insert so Map order tracks recency
   hits.set(ip, recent);
-  if (hits.size > 5000) for (const [k, v] of hits) if (v.every((t) => now - t >= WINDOW_MS)) hits.delete(k);
+  while (hits.size > MAX_IPS) hits.delete(hits.keys().next().value as string); // hard cap: evict oldest
   return false;
 }
 
@@ -35,5 +37,5 @@ export async function GET(req: Request): Promise<Response> {
   const result = await getPreScore(raw);
   if (result.ok) return reply(result, 200, "public, s-maxage=300, stale-while-revalidate=600");
   if (result.reason === "invalid") return reply(result, 400, "no-store");
-  return reply(result, 502, "public, s-maxage=30");
+  return reply(result, 200, "public, s-maxage=30");
 }

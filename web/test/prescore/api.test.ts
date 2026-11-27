@@ -48,7 +48,8 @@ describe("api route", () => {
   it("explorer error caches 30s", async () => {
     getPreScore.mockResolvedValue({ ok: false, address: ADDR, reason: "explorer" });
     const res = await GET(req(ADDR));
-    expect(res.headers.get("cache-control")).toContain("s-maxage=30");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=30");
     expect((await res.json()).reason).toBe("explorer");
   });
 

@@ -61,6 +61,26 @@ describe("getPreScore", () => {
     expect(d.fetchData).toHaveBeenCalledTimes(2);
   });
 
+  it("partial results are cached 60s, full results 5min", async () => {
+    let t = NOW;
+    const mk = (partial: boolean) => ({ ...base(), fetchData: vi.fn(async () => ({ ...activity, partial })), now: () => t });
+    const p = mk(true);
+    await getPreScore(ADDR, p);
+    t = NOW + 30_000;
+    await getPreScore(ADDR, p);
+    expect(p.fetchData).toHaveBeenCalledTimes(1);
+    t = NOW + 61_000;
+    await getPreScore(ADDR, p);
+    expect(p.fetchData).toHaveBeenCalledTimes(2);
+    clearPreScoreCache();
+    t = NOW;
+    const f = mk(false);
+    await getPreScore(ADDR, f);
+    t = NOW + 120_000;
+    await getPreScore(ADDR, f);
+    expect(f.fetchData).toHaveBeenCalledTimes(1);
+  });
+
   it("partial flag propagates", async () => {
     const d = { ...base(), fetchData: vi.fn(async () => ({ ...activity, partial: true })) };
     const r = await getPreScore(ADDR, d);
