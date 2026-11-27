@@ -5,6 +5,7 @@ import { NavLinks, type NavLink } from "./NavLinks";
 
 export const NAV_LINKS: NavLink[] = [
   { href: "/board", label: "Board" },
+  { href: "/score", label: "Pre-Score" },
   { href: "/register", label: "Register" },
   { href: "/docs", label: "Docs" },
   { href: "/lend", label: "Lend" },
@@ -13,7 +14,7 @@ export const NAV_LINKS: NavLink[] = [
 export type NavProps = {
   /** Right-side slot, e.g. a wallet ConnectButton (Task 8). */
   action?: ReactNode;
-  /** Override the primary links. Defaults to Board, Register, Docs, Lend. */
+  /** Override the primary links. Defaults to Board, Pre-Score, Register, Docs, Lend. */
   links?: NavLink[];
   /** Overlay the page (absolute, transparent) instead of sitting in flow. Use over a hero. */
   overlay?: boolean;

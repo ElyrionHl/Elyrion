@@ -45,6 +45,17 @@ describe("api route", () => {
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
 
+  it("partial wallet result caches 60s, full wallet result 300s", async () => {
+    const wallet = (partial: boolean) => ({ ok: true, kind: "wallet", address: ADDR, partial, computedAt: 0 });
+    getPreScore.mockResolvedValueOnce(wallet(true));
+    const p = await GET(req(ADDR));
+    expect(p.status).toBe(200);
+    expect(p.headers.get("cache-control")).toBe("public, s-maxage=60, stale-while-revalidate=120");
+    getPreScore.mockResolvedValueOnce(wallet(false));
+    const f = await GET(req(ADDR));
+    expect(f.headers.get("cache-control")).toBe("public, s-maxage=300, stale-while-revalidate=600");
+  });
+
   it("explorer error caches 30s", async () => {
     getPreScore.mockResolvedValue({ ok: false, address: ADDR, reason: "explorer" });
     const res = await GET(req(ADDR));

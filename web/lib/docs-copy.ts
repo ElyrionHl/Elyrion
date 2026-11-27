@@ -61,3 +61,56 @@ export const MCP_TOOLS = [
   "borrow",
   "repay",
 ] as const;
+
+/* ------------------------------------------------------------------
+   Pre-Score (activity-based, any Elysium address). Formulas verbatim from the spec.
+   ------------------------------------------------------------------ */
+
+export const PRESCORE_PARTS = [
+  {
+    part: "Longevity",
+    max: 300,
+    formula: "300 × min(1, ageDays / 30)",
+    note: "ageDays = now − first tx (Elysium mainnet launched 2026-11-09, so 30 days is a full score)",
+    plain: "How long the address has been on Elysium. Thirty days is a full score.",
+  },
+  {
+    part: "Activity",
+    max: 300,
+    formula: "300 × min(1, log10(1 + txCount) / log10(1 + 500))",
+    note: "",
+    plain: "How many successful transactions it has sent, on a log scale that fills at 500.",
+  },
+  {
+    part: "Consistency",
+    max: 200,
+    formula: "200 × min(1, activeDays / 14)",
+    note: "distinct UTC days with ≥1 tx among fetched txs",
+    plain: "On how many different days it showed up. Fourteen days is a full score.",
+  },
+  {
+    part: "Breadth",
+    max: 200,
+    formula: "200 × min(1, (distinctTokens + distinctContracts) / 15)",
+    note: "",
+    plain: "How widely it reaches: distinct tokens held in transfers plus contracts called.",
+  },
+] as const;
+
+export const PRESCORE_COUNTING_RULE = [
+  'Only successful transactions (isError = "0") sent by the address (from = address) count, taken from the latest 1,000 fetched.',
+  'txCount is capped at 1,000 (shown "1,000+"). activeDays and distinctContracts (distinct "to" addresses of those transactions, excluding self-sends) come from the same set.',
+  "distinctTokens is the number of distinct token contracts in the latest 1,000 token transfers involving the address.",
+  "ageDays counts from the address's first transaction of any kind. Each part is rounded down; the total is their sum. No history scores 0.",
+] as const;
+
+export const PRESCORE_TIERS = [
+  ["Wanderer", "0–199"],
+  ["Initiate", "200–399"],
+  ["Worthy", "400–599"],
+  ["Hero", "600–799"],
+  ["Immortal", "800–1000"],
+] as const;
+
+export const PRESCORE_INTRO =
+  "Pre-Score reads any Elysium address from its public activity on the Elysium explorer and scores it from 0 to 1000. It is a first impression, not a credit score: the agent credit score above is earned on-chain by borrowing and repaying.";

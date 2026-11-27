@@ -154,6 +154,18 @@ export function Hero({ initial }: { initial: HeroStats }) {
               </Link>
             </div>
           </Reveal>
+          <Reveal delay={0.64}>
+            <Link
+              href="/score"
+              className="group mt-7 inline-flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.18em] text-marble/75 transition-colors duration-500 hover:text-gold"
+            >
+              <span aria-hidden="true" className="h-px w-6 bg-gold/60 transition-[width] duration-700 group-hover:w-9" />
+              Check your Pre-Score
+              <span aria-hidden="true" className="transition-transform duration-700 group-hover:translate-x-1">
+                →
+              </span>
+            </Link>
+          </Reveal>
         </div>
 
         <Reveal delay={0.5} className="self-end">

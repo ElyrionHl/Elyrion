@@ -1,3 +1,4 @@
+import { CACHE_API_FAIL, cacheControlFor } from "../../../lib/prescore/http";
 import { getPreScore, type PreScoreResult } from "../../../lib/prescore/service";
 
 export const runtime = "nodejs";
@@ -35,7 +36,6 @@ export async function GET(req: Request): Promise<Response> {
   if (limited(ip, Date.now())) return reply({ ok: false, address: "", reason: "rate-limited" }, 429, "no-store");
 
   const result = await getPreScore(raw);
-  if (result.ok) return reply(result, 200, "public, s-maxage=300, stale-while-revalidate=600");
-  if (result.reason === "invalid") return reply(result, 400, "no-store");
-  return reply(result, 200, "public, s-maxage=30");
+  if (!result.ok && result.reason === "invalid") return reply(result, 400, "no-store");
+  return reply(result, 200, cacheControlFor(result, CACHE_API_FAIL));
 }

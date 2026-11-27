@@ -338,6 +338,117 @@
 }
 
 /* ------------------------------------------------------------------
+   Pre-Score
+   ------------------------------------------------------------------ */
+/* Reading sequence: real numbers step in one line at a time, then the overlay lifts. */
+.prescore-reading {
+  transition:
+    opacity 0.7s var(--ease),
+    filter 0.7s var(--ease),
+    visibility 0s linear 0s;
+}
+.prescore-reading[data-phase="done"] {
+  opacity: 0;
+  filter: blur(10px);
+  visibility: hidden;
+  transition:
+    opacity 0.7s var(--ease),
+    filter 0.7s var(--ease),
+    visibility 0s linear 0.7s;
+}
+.prescore-line {
+  opacity: 0;
+  filter: blur(8px);
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 0.5s var(--ease),
+    filter 0.5s var(--ease),
+    transform 0.5s var(--ease),
+    color 0.5s var(--ease);
+}
+.prescore-line[data-state="now"] {
+  opacity: 1;
+  filter: none;
+  transform: none;
+  color: var(--gold);
+}
+.prescore-line[data-state="past"] {
+  opacity: 0.5;
+  filter: none;
+  transform: none;
+}
+.prescore-progress {
+  width: var(--p, 0%);
+  transition: width 0.35s var(--ease);
+}
+/* Loading: an indeterminate hairline sweep (no numbers until real ones arrive). */
+.prescore-scan > div {
+  animation: prescore-scan 1.6s var(--ease) infinite;
+}
+@keyframes prescore-scan {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+/* Warm glow behind the ring once the score lands. */
+.prescore-halo {
+  background: radial-gradient(80% 32% at 50% 20%, rgba(226, 197, 139, 0.09), transparent 70%);
+  opacity: 0;
+  transition: opacity 2.4s var(--ease) 0.3s;
+}
+.prescore-halo[data-on="true"] {
+  opacity: 1;
+}
+@media (min-width: 768px) {
+  .prescore-halo {
+    background: radial-gradient(42% 70% at 22% 50%, rgba(226, 197, 139, 0.09), transparent 70%);
+  }
+}
+
+/* Search field: the container carries the focus ring (the input's own outline is off). */
+.prescore-field:focus-within {
+  outline: 1px solid var(--gold);
+  outline-offset: 3px;
+}
+
+/* Share card: pointer-following tilt (vars set by ShareCard.tsx), eased by the one curve. */
+.prescore-stage {
+  perspective: 1400px;
+}
+.prescore-card {
+  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transform-style: preserve-3d;
+  transition:
+    transform 0.9s var(--ease),
+    box-shadow 0.9s var(--ease),
+    border-color 0.9s var(--ease);
+  box-shadow: 0 40px 100px -60px rgba(226, 197, 139, 0.35);
+}
+.prescore-card[data-tilt="on"] {
+  border-color: rgba(226, 197, 139, 0.3);
+  box-shadow: 0 50px 120px -50px rgba(226, 197, 139, 0.45);
+}
+.prescore-glare {
+  background: radial-gradient(circle at var(--gx, 50%) var(--gy, 0%), rgba(255, 236, 190, 0.1), transparent 42%);
+  opacity: 0;
+  transition: opacity 0.9s var(--ease);
+}
+.prescore-card[data-tilt="on"] .prescore-glare {
+  opacity: 1;
+}
+@media (pointer: coarse) {
+  .prescore-card {
+    transform: none;
+  }
+  .prescore-glare {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------
    Reduced motion: everything lands in its final state immediately.
    ------------------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce) {
@@ -369,6 +480,17 @@
     opacity: 0;
   }
   .audience:hover {
+    transform: none;
+  }
+  .prescore-card {
+    transform: none;
+  }
+  .prescore-glare,
+  .prescore-reading {
+    display: none;
+  }
+  .prescore-scan > div {
+    animation: none;
     transform: none;
   }
 }

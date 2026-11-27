@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { Reveal } from "@/components/brand/Reveal";
 import { RiskNote } from "@/components/brand/RiskNote";
 import { PageHead } from "@/components/PageHead";
 import { ELYSIUM_EXPLORER, ELYSIUM_RPC, explorerAddressUrl } from "@/lib/chain";
 import { readConfig } from "@/lib/contracts";
+import { DISCLAIMER } from "@/lib/prescore/constants";
 import {
   BACKER_NOTE,
   DEFAULT_RULE,
@@ -13,6 +15,10 @@ import {
   MCP_TOOLS,
   mcpConfig as buildMcpConfig,
   mcpInstallSteps,
+  PRESCORE_COUNTING_RULE,
+  PRESCORE_INTRO,
+  PRESCORE_PARTS,
+  PRESCORE_TIERS,
   PRIORS_CREDIT,
   SCORE_ROWS,
   SELF_BACKED_NOTE,
@@ -20,7 +26,7 @@ import {
 
 export const metadata: Metadata = {
   title: "Docs",
-  description: "How Elyrion works: MCP setup, contracts, the credit score, caps and the check API.",
+  description: "How Elyrion works: MCP setup, contracts, the credit score, the Pre-Score, caps and the check API.",
 };
 
 const TOOLS: [(typeof MCP_TOOLS)[number], string, string][] = [
@@ -47,6 +53,7 @@ const SECTIONS: [string, string][] = [
   ["mcp", "MCP setup"],
   ["contracts", "Contracts"],
   ["score", "Score"],
+  ["prescore", "Pre-Score"],
   ["caps", "Caps & fees"],
   ["backers", "Backers"],
   ["api", "Check API"],
@@ -252,6 +259,80 @@ export default function DocsPage() {
             </Reveal>
             <Reveal>
               <p className="text-[13px] text-mute">{PRIORS_CREDIT}</p>
+            </Reveal>
+          </section>
+
+          {/* Pre-Score */}
+          <section aria-labelledby="prescore" className="grid min-w-0 grid-cols-1 gap-6">
+            <H2 id="prescore">Pre-Score</H2>
+            <Reveal>
+              <p className={P}>{PRESCORE_INTRO}</p>
+            </Reveal>
+            <Reveal>
+              <div className="overflow-hidden rounded-[14px] border border-line">
+                <table className="w-full border-collapse text-left">
+                  <caption className="sr-only">Pre-Score parts, maxima and formulas</caption>
+                  <thead>
+                    <tr className="border-b border-line bg-obsidian">
+                      <th scope="col" className="stat-key px-4 py-3 font-medium sm:px-5">Part</th>
+                      <th scope="col" className="stat-key px-2 py-3 text-right font-medium">Max</th>
+                      <th scope="col" className="stat-key hidden px-4 py-3 font-medium sm:table-cell sm:px-5">Formula</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {PRESCORE_PARTS.map((r) => (
+                      <tr key={r.part} className="border-b border-line bg-obsidian-2 align-top last:border-0">
+                        <th scope="row" className="px-4 py-4 text-[14.5px] font-normal text-marble/90 sm:px-5">
+                          {r.part}
+                          {/* On phones the formula sits under the part name instead of in its own column. */}
+                          <span className="num mt-2 block text-[12px] break-words text-gold sm:hidden">{r.formula}</span>
+                          {r.note ? <span className="mt-1.5 block text-[12px] leading-relaxed text-mute sm:hidden">{r.note}</span> : null}
+                        </th>
+                        <td className="num px-2 py-4 text-right text-[14px] text-marble">{r.max}</td>
+                        <td className="hidden px-4 py-4 sm:table-cell sm:px-5">
+                          <code className="num text-[12.5px] text-gold">{r.formula}</code>
+                          {r.note ? <span className="mt-1.5 block text-[12.5px] leading-relaxed text-mute">{r.note}</span> : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Reveal>
+            <Reveal>
+              <h3 className="stat-key mt-2">What counts</h3>
+              <ul className="mt-4 grid gap-3">
+                {PRESCORE_COUNTING_RULE.map((line) => (
+                  <li key={line} className="flex items-start gap-3 text-[14px] leading-relaxed text-marble/75">
+                    <span aria-hidden="true" className="mt-[9px] h-px w-3 shrink-0 bg-gold/60" />
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            </Reveal>
+            <Reveal>
+              <h3 className="stat-key mt-2">Tiers</h3>
+              <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-[14px] border border-line bg-line sm:grid-cols-5">
+                {PRESCORE_TIERS.map(([tier, range]) => (
+                  <div key={tier} className="bg-obsidian-2 p-4 last:col-span-2 sm:last:col-span-1">
+                    <dt className="display text-[22px] italic text-gold">{tier}</dt>
+                    <dd className="num mt-1.5 text-[12px] text-marble/70">{range}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Reveal>
+            <Reveal>
+              <p className="flex items-start gap-3 rounded-[14px] border border-gold/30 bg-obsidian p-4 text-[14px] leading-relaxed text-marble/90">
+                <span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-gold" />
+                <span>
+                  {DISCLAIMER}. Same address, same data, same score: the text on the result page is chosen by fixed
+                  templates seeded by the address. Try it at{" "}
+                  <Link href="/score" className="text-gold underline decoration-gold/30 underline-offset-4 transition-colors duration-500 hover:text-marble">
+                    /score
+                  </Link>
+                  .
+                </span>
+              </p>
             </Reveal>
           </section>
 
