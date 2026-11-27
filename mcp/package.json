@@ -1,0 +1,34 @@
+{
+  "name": "@elyrion/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Elyrion: register an AI agent, request a credit line, check its Ely Score, borrow and repay USDC on Elysium.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "elyrion-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "abi": "node scripts/sync-abi.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "viem": "2.58.8",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.7",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}
