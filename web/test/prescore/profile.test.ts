@@ -26,6 +26,11 @@ const MAX: Metrics = {
   distinctContracts: 1000, distinctTokens: 1000, usdcTransfers: 1000, busiestDayShare: 1,
 };
 
+// Time/arrival framing that would contradict a Newcomer or Veteran line next to a tier-only opener.
+const LONG_STANDING = /\b(long|far behind|well behind|knows [\w ]*well|well known|deep(ly)?|seasoned|old|ages|years|veteran|always|since long)\b/i;
+const EARLY = /\b(early|arriv\w*|newly|new|fresh|young|begun|beginning|began|started|starts?|still|yet|so far|for now|taking form|forming|finding|first (marks?|rites|chapter|few|steps?|stars?)|ahead|to come)\b/i;
+const TIME_WORDS = new RegExp(`${LONG_STANDING.source}|${EARLY.source}`, "i");
+
 // Deterministic pseudo-random addresses for variety tests.
 function addresses(n: number, seed = 7): string[] {
   let s = seed;
@@ -153,11 +158,54 @@ describe("buildProfile", () => {
     }
   });
   it("never fills a numeric slot with 0 or 1", () => {
-    const thin: Metrics = { ...LOW, txCount: 1, activeDays: 1, distinctContracts: 1, distinctTokens: 0, ageDays: 1 };
+    // firstBlock is a large number so any standalone 0 or 1 in the text can only come from a bad fill.
+    const thin: Metrics = { ...LOW, firstBlock: 52_000, txCount: 1, activeDays: 1, distinctContracts: 1, distinctTokens: 0, ageDays: 1 };
+    const zero: Metrics = { ...thin, txCount: 0, activeDays: 0, distinctContracts: 0, ageDays: 0 };
     for (const tier of TIERS) {
-      for (const a of addresses(80, 5)) {
-        const p = buildProfile(a, tier, ["quiet", "newcomer"], thin);
-        expect(p, p).not.toMatch(/(^|\s)[01] [a-z]/);
+      for (const m of [thin, zero]) {
+        for (const a of addresses(80, 5)) {
+          const p = buildProfile(a, tier, ["quiet", "newcomer"], m);
+          expect(p, p).not.toMatch(/(?<![\d,])[01](?![\d,+])/);
+        }
+      }
+    }
+  });
+  it("shows 1,000+ only for capped counts, and never a bare 1,000 for them", () => {
+    const below: Metrics = { ...MID, txCount: 999, txCapped: false, distinctContracts: 999, distinctTokens: 999, activeDays: 999 };
+    const traits: TraitId[][] = [["relentless", "explorer"], ["collector", "wide-reach"], ["loyal", "steady"]];
+    for (const tier of TIERS) {
+      for (const t of traits) {
+        for (const a of addresses(40, 13)) {
+          expect(buildProfile(a, tier, t, below)).not.toMatch(/1,000\+/);
+          expect(buildProfile(a, tier, t, below)).not.toMatch(/(?<![\d,])1(?![\d,+])/);
+          const capped = buildProfile(a, tier, t, MAX);
+          expect(capped, capped).not.toMatch(/1,000(?!\+)/);
+        }
+      }
+    }
+  });
+  it("tier openers carry no time or arrival framing", () => {
+    for (const t of TIERS) for (const s of OPENERS[t]) expect(TIME_WORDS.test(s), s).toBe(false);
+  });
+  it("no profile pairs a newcomer with a long-standing opener, or a veteran/early arrival with an early opener", () => {
+    const young: Metrics = { ...MID, ageDays: 1, activeDays: 2 };
+    const old: Metrics = { ...MID, ageDays: 25 };
+    const cases: [TraitId, Metrics, RegExp][] = [
+      ["newcomer", young, LONG_STANDING],
+      ["veteran", old, EARLY],
+      ["early-arrival", old, EARLY],
+    ];
+    for (const tier of TIERS) {
+      for (const [trait, m, bad] of cases) {
+        for (const other of TRAIT_IDS) {
+          if (other === trait) continue;
+          for (const a of addresses(12, 17)) {
+            const p = buildProfile(a, tier, [trait, other], m);
+            const opener = OPENERS[tier].map((s) => fillSlots(s, m, tier)).find((s) => p.startsWith(s));
+            expect(opener, p).toBeDefined();
+            expect(bad.test(opener!), p).toBe(false);
+          }
+        }
       }
     }
   });

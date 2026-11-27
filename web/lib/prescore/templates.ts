@@ -14,6 +14,8 @@ import type { TraitId } from "./traits";
  * - Counts come from a capped window (latest 1,000 txs), so {txCount} is described as "counted"; it may show "1,000+".
  * - {contracts} counts distinct `to` addresses (wallets included): say "addresses" or "destinations", never "contracts".
  * - The first tx may be incoming, so age is "first seen" / "first entry", not "first step taken".
+ * - Openers carry no time or arrival framing ("early", "arrived", "far behind", "knows it well"): any tier opener can
+ *   sit next to a Newcomer or a Veteran line. profile.test.ts enforces this with TIME_WORDS.
  * - Calm, precise, a little mythic. No hype, no price or financial language, no judgement of the wallet.
  * - Closers never imply the Pre-Score affects a credit score.
  */
@@ -41,7 +43,7 @@ export const NO_HISTORY_OPENER = "No footsteps on Elysium yet.";
 export const EMPTY_LINES: string[] = [
   "The gate is open, and the first step is still to come.",
   "The ledger holds no entries for this address so far.",
-  "Nothing to read yet, and nothing held against it.",
+  "Nothing to read yet, and nothing to weigh.",
   "The fields are open; the first mark is still to be made.",
   "Every path in Elysium begins with a single transaction.",
   "The record is blank, which is where every record starts.",
@@ -50,29 +52,29 @@ export const EMPTY_LINES: string[] = [
 export const OPENERS: Record<Tier, string[]> = {
   Wanderer: [
     "A Wanderer at the edge of Elysium. The record is light, and the path is open.",
-    "The first marks are on the ledger. The shape of this path is still forming.",
-    "This address stands at the threshold, not yet far inside.",
-    "A Wanderer for now. Every name in Elysium began as one.",
-    "The ledger knows this address, though not yet well.",
-    "The trail is still being drawn, one entry at a time.",
-    "Wanderer: a reading taken early, before the path has found its shape.",
-    "Elysium has seen this address arrive. What it builds here is still to come.",
-    "The gate has opened for this address. The longer walk is still ahead.",
+    "A Wanderer's reading: a light record, with room for a great deal more.",
+    "This reading sits at the threshold of the scale.",
+    "A Wanderer. Every name in Elysium has stood here once.",
+    "The ledger holds a little of this address. The reading is light.",
     "A faint line on the ledger, and room for a great deal more.",
+    "Wanderer: the trail is faint, and the path is wide open.",
+    "The constellation here has a star or two, and a dark sky around them.",
+    "A Wanderer's path, lightly marked and open in every direction.",
+    "Wanderer. The scale has room above, and the gate stands open.",
     "First seen at block {firstBlock}. The rest of the path is unwritten.",
-    "The record spans {ageDays} days so far. Its fuller story is still unwritten.",
+    "The record spans {ageDays} days. Its fuller story is unwritten.",
   ],
   Initiate: [
-    "An Initiate. The first rites are done, and the path is taking form.",
-    "Past the threshold now. The record has shape, if not yet depth.",
-    "Initiate: the ledger has started to remember this address.",
-    "The first chapter is written. An Initiate's record, clear and unfinished.",
+    "An Initiate. The rites are done, and the path has a form.",
+    "Past the threshold. The record has shape, if not depth.",
+    "Initiate: the ledger remembers this address.",
+    "One chapter is written. An Initiate's record, clear and unfinished.",
     "Known at the gate. The footsteps of an Initiate lead inward.",
     "An Initiate of Elysium. The outline of a reputation is visible.",
     "An Initiate. The ledger holds enough to read, and room for more.",
-    "Initiate. The constellation has its first few stars.",
-    "First seen at block {firstBlock}, this address now walks as an Initiate.",
-    "{activeDays} active days on record. An Initiate, finding its pace.",
+    "Initiate. A few stars of the constellation are lit.",
+    "First seen at block {firstBlock}, this address walks as an Initiate.",
+    "{activeDays} active days on record, enough for an Initiate's reading.",
     "Across {ageDays} days, the record has grown into an Initiate's.",
   ],
   Worthy: [
@@ -82,7 +84,7 @@ export const OPENERS: Record<Tier, string[]> = {
     "Midway up the ascent, and on firm ground.",
     "The record carries weight now. Worthy, by the measure of the ledger.",
     "Worthy. The constellation has taken a shape you can trace.",
-    "Worthy: past the gate, with the fields opening ahead.",
+    "Worthy: past the gate, on the road toward the Elysian fields.",
     "A Worthy presence. The ledger has a good deal to say about it.",
     "{txCount} counted transactions, and a record that reads as Worthy.",
     "Since block {firstBlock}, this address has earned a Worthy reading.",
@@ -90,11 +92,11 @@ export const OPENERS: Record<Tier, string[]> = {
   ],
   Hero: [
     "A Hero's record. The ledger tells its story in a clear hand.",
-    "Hero. The footsteps on this path are deep and unmistakable.",
+    "Hero. The footsteps on this path are unmistakable.",
     "The ledger names this address a Hero, and the record supports it.",
     "High on the ascent. A Hero's footsteps, plain to see.",
     "Hero. The constellation is bright enough to navigate by.",
-    "A Hero of Elysium. The gate is far behind; the fields are close.",
+    "A Hero of Elysium, within sight of the Elysian fields.",
     "Heroes are known by their record. This one is well kept.",
     "Hero: a reading earned entry by entry, in full view of the ledger.",
     "Since block {firstBlock}, a Hero's path through the Elysian fields.",
@@ -104,10 +106,10 @@ export const OPENERS: Record<Tier, string[]> = {
   ],
   Immortal: [
     "Immortal. The ledger holds this name in full.",
-    "An Immortal record. Elysium knows this address well.",
-    "The highest reading the Pre-Score gives. This path is written deep into the ledger.",
+    "An Immortal reading. The record leaves little to add.",
+    "The highest reading the Pre-Score gives. This path is written plainly on the ledger.",
     "Immortal: the summit of the ascent, reached on the strength of the record.",
-    "Among the Immortals. The footsteps here are deep and plain to read.",
+    "Among the Immortals. The footsteps here are plain to read.",
     "Immortal. The Elysian fields are home ground for this address.",
     "Immortal: the ledger's highest mark, earned in full view.",
     "Immortal. Few words are needed; the record speaks for itself.",
@@ -153,7 +155,7 @@ export const TRAIT_LINES: Record<TraitId, string[]> = {
     "A tireless hand, with three hundred or more transactions to its name.",
     "Relentless. {txCount} counted transactions bear its signature.",
     "Its counted record runs to {txCount} transactions.",
-    "Volume is its signature: {txCount} counted transactions sent.",
+    "{txCount} counted transactions sent, a long line of entries on the ledger.",
   ],
   // activeDays >= 7 and >= half of the days since first seen
   steady: [
@@ -169,7 +171,7 @@ export const TRAIT_LINES: Record<TraitId, string[]> = {
     "Its activity gathers in bursts, most of it on one or two days.",
     "At least four in five of its transactions fell on its two busiest days.",
     "Concentrated rather than scattered: most of its activity sits on one or two days.",
-    "When it moves, it moves at once. Its two busiest days hold most of its record.",
+    "Its activity gathers on a few days, with most of it on the busiest two.",
     "Comet-like, its record shines brightest on one or two days.",
     "A burst on the ledger: {txCount} counted transactions, most within one or two days.",
   ],
@@ -202,12 +204,12 @@ export const TRAIT_LINES: Record<TraitId, string[]> = {
   ],
   // USDC in >= 5 fetched token transfers
   "stable-native": [
-    "USDC appears in at least five of its transfers.",
-    "At home with USDC, which appears in five or more of its transfers.",
-    "Its ledger speaks in USDC; five transfers or more carry it.",
-    "Fluent in USDC, a regular presence in its token transfers.",
-    "USDC runs through its record like a familiar current.",
-    "A stable-native address: USDC is part of how it moves.",
+    "USDC appears in at least five of its token transfers.",
+    "USDC is among the tokens it has moved, in five transfers or more.",
+    "Five or more of its token transfers carry USDC.",
+    "USDC has moved to or from this address at least five times.",
+    "Stable-native: USDC is part of its record, in at least five transfers.",
+    "Its token transfers include USDC, five times or more.",
   ],
   // txCount < 5 (may be 0 when only incoming activity exists)
   quiet: [
@@ -243,16 +245,15 @@ export const CLOSERS: string[] = [
   "When you are ready, register an agent to begin a real credit score on Elyrion.",
   "The credit score is a separate path, and it begins with a registered agent.",
   "Pre-Score reads footsteps. Elyrion's credit score reads promises kept.",
-  "Only the worthy enter Elysium. On Elyrion, worth is earned by agents, one kept promise at a time.",
   "The {tier} tier measures activity alone. A credit score is a separate path.",
   "This reading moves as the path does. A credit score begins with a registered agent.",
   "Nothing here touches a credit score. Register an agent when you want one of your own.",
   "An agent registered on Elyrion earns a credit score of its own, built from what it does.",
   "A Pre-Score is a mirror, not a verdict. Credit is earned by registered agents.",
   "The registry is open whenever an agent is ready to take its oath.",
-  "Activity is the first chapter. Registered agents write the rest into a credit record.",
-  "From here the path leads to the registry, where agents earn a real credit score.",
-  "Pre-Score is a first reading. The credit score belongs to agents registered on Elyrion.",
-  "Take this reading as a starting point. A real credit score starts with a registered agent.",
+  "The credit score is a separate record, earned by registered agents.",
+  "Elyrion keeps its credit score apart from this reading. It belongs to registered agents.",
+  "The Pre-Score reads activity only. The credit score belongs to agents registered on Elyrion.",
+  "This reading stands on its own. A credit score is earned separately, by a registered agent.",
   "To be scored for credit, an agent must first be registered. The gate is open.",
 ];
