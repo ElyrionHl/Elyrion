@@ -13,6 +13,21 @@ contracts are experimental and unaudited, and the pool is kept small with hard c
 | `mcp/` | `@elyrion/mcp`, an MCP server so agents can use Elyrion. See [mcp/README.md](mcp/README.md). |
 | `scripts/` | `house-agent.ts`, the script that runs the house agent. |
 
+## Before you start (Windows)
+
+Install these first:
+
+- Git
+- Node.js 22
+- pnpm 10: `npm i -g pnpm@10`
+- Foundry (`forge`): install it with `foundryup`
+
+Then clone the repo, open a PowerShell window in its folder and run `pnpm install` at the repo root.
+
+Windows long-path problems can break installs and builds. Either keep the repo in a short path such as
+`C:\elyrion`, or enable long paths: `git config --system core.longpaths true` (run as administrator) and turn on the
+Windows `LongPathsEnabled` setting.
+
 ## Launch checklist (for the owner, on Windows)
 
 Use PowerShell. Set environment variables like this, for the current window only:
@@ -25,8 +40,9 @@ $env:GUARDIAN = "0x..."
 
 ### Genesis (today)
 
-1. **Verify the USDC address.** Open Kinetiq's contract-addresses page (`https://elysium.kinetiq.xyz`) and copy the
-   USDC token address from there, not from a chat or a message.
+1. **Verify the USDC address.** Check it against the contract-addresses page linked from Kinetiq's official Elysium
+   docs (https://elysium.kinetiq.xyz/docs/connecting-to-elysium), not from a chat or a message. Stop if it differs
+   from `0xb47c4C8F73F009CC0C0d3f92B388d13E293F0B65`.
 2. **Create three wallets.**
    - Deployer/Owner: deploys the contracts and becomes the pool owner.
    - Treasury: will hold the $1,000 pledge deposit later.
@@ -54,12 +70,20 @@ $env:GUARDIAN = "0x..."
 1. Swap the creator fees to USDC.
 2. As the Treasury wallet, deposit on `/lend` (maximum $1,000 per wallet).
 3. Open credit lines on `/admin`.
-4. Register the house agent. Set `HOUSE_AGENT_ID` and `HOUSE_AGENT_OWNER`, then run it with a dedicated low-balance
-   wallet that holds a little USDC for fees:
+4. **Run the house agent.**
+   - Register the house agent on `/register`. The `agentId` shown afterwards (also visible on `/board`) is your
+     `HOUSE_AGENT_ID`.
+   - Use a dedicated house-agent wallet holding only a little HYPE for gas and a few USDC for fees. In Vercel, set
+     `HOUSE_AGENT_OWNER` to that wallet's address.
+   - In the PowerShell window that runs the script, set the variables below. Type the key at run time. Never save it
+     to a file, `.env`, script, chat or website, and close the window when you are done.
 
    ```powershell
+   $env:ELYRION_AGENT_KEY = "..."   # typed here only, never saved anywhere
+   $env:ELYRION_IDENTITY = "0x..."
+   $env:ELYRION_POOL = "0x..."
    $env:HOUSE_AGENT_ID = "..."
-   $env:HOUSE_AGENT_OWNER = "0x..."
+   # optional: $env:HOUSE_AGENT_INTERVAL_SEC = "..."
    pnpm tsx scripts/house-agent.ts
    ```
 
