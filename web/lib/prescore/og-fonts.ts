@@ -1,10 +1,30 @@
-// Instrument Serif + JetBrains Mono TTFs for the OG image, fetched from Google Fonts at request time and kept
-// in memory per instance. Any failure resolves to null: the card then renders in Satori's bundled sans.
+// Brand fonts for the OG image. Instrument Serif (regular + italic) and JetBrains Mono (regular) are vendored as TTF
+// under web/assets/fonts (SIL Open Font License 1.1; license texts next to them) and read from disk, so the card
+// does not depend on Google Fonts at request time. Google Fonts remains only as a fallback if the files cannot be
+// read. Any failure resolves to null: the card then renders in Satori's bundled sans.
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 export type OgFont = { name: string; data: ArrayBuffer; weight: 400 | 500; style: "normal" | "italic" };
 
-const CSS_URL =
-  "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap";
+/** The faces the card uses (og-card.tsx sets no font weight, so 400 only). */
+export const OG_FONT_FILES = [
+  { file: "InstrumentSerif-Regular.ttf", name: "Instrument Serif", style: "normal", weight: 400 },
+  { file: "InstrumentSerif-Italic.ttf", name: "Instrument Serif", style: "italic", weight: 400 },
+  { file: "JetBrainsMono-Regular.ttf", name: "JetBrains Mono", style: "normal", weight: 400 },
+] as const;
+
+/*
+ * Literal paths, one per file, so the build traces exactly these files into the server output (a computed path
+ * would make Turbopack trace the whole project). Same order as OG_FONT_FILES.
+ */
+const VENDORED: (() => Promise<Buffer>)[] = [
+  () => readFile(join(process.cwd(), "assets", "fonts", "InstrumentSerif-Regular.ttf")),
+  () => readFile(join(process.cwd(), "assets", "fonts", "InstrumentSerif-Italic.ttf")),
+  () => readFile(join(process.cwd(), "assets", "fonts", "JetBrainsMono-Regular.ttf")),
+];
+
+const CSS_URL = "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400&display=swap";
 const TIMEOUT_MS = 4000;
 
 let cached: Promise<OgFont[] | null> | null = null;
@@ -22,16 +42,30 @@ export function parseFontCss(css: string): { name: string; style: "normal" | "it
   return out;
 }
 
-export type OgFontDeps = { fetch?: typeof fetch; now?: () => number };
+/** `readLocal` replaces reading the vendored files (test hook; index into OG_FONT_FILES). */
+export type OgFontDeps = { fetch?: typeof fetch; now?: () => number; readLocal?: (index: number) => Promise<Buffer> };
 
-/** After a failed load, skip fetching for this long so a Google Fonts outage costs nothing per request. */
+/** After a failed load, skip loading for this long so an outage costs nothing per request. */
 export const FONT_RETRY_MS = 60_000;
 
-async function load(f: typeof fetch): Promise<OgFont[] | null> {
+const toArrayBuffer = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+
+/** The vendored TTFs, or null if any cannot be read. */
+async function loadLocal(read: (index: number) => Promise<Buffer>): Promise<OgFont[] | null> {
+  try {
+    return await Promise.all(
+      OG_FONT_FILES.map(async (f, i) => ({ name: f.name, style: f.style, weight: f.weight, data: toArrayBuffer(await read(i)) })),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Fallback: Google Fonts css2 (a plain user agent makes it serve TrueType, which Satori can read; not woff2). */
+async function loadRemote(f: typeof fetch): Promise<OgFont[] | null> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
   try {
-    // A plain user agent makes Google serve TrueType, which Satori can read (it cannot read woff2).
     const css = await f(CSS_URL, { signal: ctl.signal, headers: { "user-agent": "node" } }).then((r) =>
       r.ok ? r.text() : Promise.reject(new Error(`fonts css ${r.status}`)),
     );
@@ -58,14 +92,16 @@ export function getOgFonts(deps: OgFontDeps = {}): Promise<OgFont[] | null> {
   const now = deps.now ?? Date.now;
   if (!cached && failedAt !== null && now() - failedAt < FONT_RETRY_MS) return Promise.resolve(null);
   if (!cached) {
-    cached = load(deps.fetch ?? fetch).then((fonts) => {
-      if (fonts) failedAt = null;
-      else {
-        failedAt = now();
-        cached = null;
-      }
-      return fonts;
-    });
+    cached = loadLocal(deps.readLocal ?? ((i) => VENDORED[i]()))
+      .then((local) => local ?? loadRemote(deps.fetch ?? fetch))
+      .then((fonts) => {
+        if (fonts) failedAt = null;
+        else {
+          failedAt = now();
+          cached = null;
+        }
+        return fonts;
+      });
   }
   return cached;
 }

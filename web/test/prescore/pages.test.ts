@@ -1,11 +1,11 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { NAV_LINKS } from "../../components/brand/Nav";
 import { PRESCORE_COUNTING_RULE, PRESCORE_PARTS, PRESCORE_TIERS } from "../../lib/docs-copy";
 import { cardModel, PARTIAL_LABEL, VARIANT_HEADER } from "../../lib/prescore/card";
 import { DISCLAIMER, TIER_BOUNDS } from "../../lib/prescore/constants";
-import { FONT_RETRY_MS, getOgFonts, parseFontCss, resetOgFonts, type OgFont } from "../../lib/prescore/og-fonts";
+import { FONT_RETRY_MS, getOgFonts, OG_FONT_FILES, parseFontCss, resetOgFonts, type OgFont } from "../../lib/prescore/og-fonts";
 import { preScoreCardResponse } from "../../lib/prescore/og-render";
 import type { Metrics } from "../../lib/prescore/metrics";
 import { scoreMetrics } from "../../lib/prescore/score";
@@ -231,18 +231,55 @@ describe("og card", () => {
     expect(src("lib", "prescore", "og-render.tsx")).toContain("getPreScore(a, { deadlineMs: DEADLINE_OG_MS })");
   });
 
+  it("brand fonts are vendored OFL TTFs read from disk, with their license texts", async () => {
+    const dir = join(ROOT, "assets", "fonts");
+    for (const f of OG_FONT_FILES) {
+      const buf = readFileSync(join(dir, f.file));
+      expect([...buf.subarray(0, 4)], f.file).toEqual([0, 1, 0, 0]); // TrueType
+      expect(statSync(join(dir, f.file)).size, f.file).toBeLessThan(300_000);
+    }
+    for (const lic of ["InstrumentSerif-OFL.txt", "JetBrainsMono-OFL.txt"]) {
+      expect(readFileSync(join(dir, lic), "utf8"), lic).toContain("SIL Open Font License, Version 1.1");
+    }
+    // The literal read paths (kept literal for build tracing) follow OG_FONT_FILES order.
+    const reads = [...src("lib", "prescore", "og-fonts.ts").matchAll(/"assets", "fonts", "([^"]+)"/g)].map((m) => m[1]);
+    expect(reads).toEqual(OG_FONT_FILES.map((f) => f.file));
+    resetOgFonts();
+    const net = vi.fn() as unknown as typeof fetch;
+    const fonts = await getOgFonts({ fetch: net }); // default: the vendored files under web/assets/fonts
+    expect(net).not.toHaveBeenCalled(); // no request to Google Fonts
+    expect(fonts?.map((f) => [f.name, f.style, f.weight])).toEqual([
+      ["Instrument Serif", "normal", 400],
+      ["Instrument Serif", "italic", 400],
+      ["JetBrains Mono", "normal", 400],
+    ]);
+    resetOgFonts();
+  });
+
+  it("renders the score card with the vendored fonts at full quality", async () => {
+    resetOgFonts();
+    const fonts = await getOgFonts();
+    expect(fonts).not.toBeNull();
+    const res = await preScoreCardResponse(ADDR, "", { load: async () => wallet(true), fonts: async () => fonts });
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=60, stale-while-revalidate=120"); // partial, not degraded
+    expect(png(await res.arrayBuffer())).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    resetOgFonts();
+  }, 30_000);
+
   it("remembers a font-load failure for 60 s instead of refetching on every request", async () => {
     resetOgFonts();
     let t = 1_000_000;
     const now = () => t;
+    // Vendored files unreadable: the Google Fonts fallback is tried, and its failure remembered.
+    const readLocal = async () => Promise.reject(new Error("ENOENT"));
     const failing = vi.fn(async () => new Response("down", { status: 503 })) as unknown as typeof fetch;
-    expect(await getOgFonts({ fetch: failing, now })).toBeNull();
+    expect(await getOgFonts({ fetch: failing, now, readLocal })).toBeNull();
     expect(failing).toHaveBeenCalledTimes(1);
     t += FONT_RETRY_MS - 1;
-    expect(await getOgFonts({ fetch: failing, now })).toBeNull();
+    expect(await getOgFonts({ fetch: failing, now, readLocal })).toBeNull();
     expect(failing).toHaveBeenCalledTimes(1); // skipped during the window
     t += 1;
-    expect(await getOgFonts({ fetch: failing, now })).toBeNull();
+    expect(await getOgFonts({ fetch: failing, now, readLocal })).toBeNull();
     expect(failing).toHaveBeenCalledTimes(2); // retried after it
     resetOgFonts();
   });
