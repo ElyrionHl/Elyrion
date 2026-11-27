@@ -4,5 +4,6 @@
   "version": "0.1.0",
   "scripts": {
     "test:contracts": "cd contracts && forge test"
-  }
+  },
+  "packageManager": "pnpm@10.33.4"
 }

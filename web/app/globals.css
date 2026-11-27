@@ -1,0 +1,276 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------
+   Elyrion design tokens — "Obsidian & Gold"
+   Source of truth: docs/elyrion-brand-mockup.html (approved).
+   ------------------------------------------------------------------ */
+:root {
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --obsidian: #0b0a08;
+  --obsidian-2: #13110d;
+  --gold: #e2c58b;
+  --gold-2: #b8925a;
+  --gold-deep: #8a6a3c;
+  --marble: #f4efe6;
+  --ink: #1a1712;
+  --mute: rgba(244, 239, 230, 0.55);
+  --line: rgba(231, 206, 150, 0.14);
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-obsidian: var(--obsidian);
+  --color-obsidian-2: var(--obsidian-2);
+  --color-gold: var(--gold);
+  --color-gold-2: var(--gold-2);
+  --color-gold-deep: var(--gold-deep);
+  --color-marble: var(--marble);
+  --color-ink: var(--ink);
+  --color-mute: var(--mute);
+  --color-line: var(--line);
+
+  /* next/font variables are set on <html> in app/layout.tsx */
+  --font-serif: var(--font-instrument-serif), "Instrument Serif", Georgia, serif;
+  --font-sans: var(--font-inter), Inter, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
+
+  /* The one easing. `ease-gate` utility + default for every `transition-*` utility. */
+  --ease-gate: var(--ease);
+  --default-transition-timing-function: var(--ease);
+}
+
+@layer base {
+  html {
+    background: var(--obsidian);
+  }
+
+  body {
+    background: var(--obsidian);
+    color: var(--marble);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--gold);
+    color: var(--ink);
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--gold);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  /* Display serif, mockup h1/h4 treatment. Italic <em> inside goes gold. */
+  .display {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    line-height: 0.98;
+    letter-spacing: -0.02em;
+  }
+  .display em {
+    color: var(--gold);
+  }
+
+  /* Gold mono eyebrow ("Credit layer for AI agents · Elysium"). */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+
+  /* Mono stat key ("LOANS REPAID"). */
+  .stat-key {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--gold);
+    opacity: 0.85;
+  }
+
+  /* All numbers are JetBrains Mono with tabular figures. */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  /* ELYRION wordmark. The negative margin cancels the tracking after the last
+     letter so the word stays optically centred / flush. */
+  .wordmark {
+    font-family: var(--font-serif);
+    letter-spacing: 0.34em;
+    margin-right: -0.34em;
+    line-height: 1;
+    color: var(--marble);
+  }
+
+  /* Pill buttons from the mockup. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-family: var(--font-sans);
+    font-weight: 500;
+    font-size: 12.5px;
+    padding: 10px 18px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    background: transparent;
+    color: inherit;
+    transition:
+      background-color 0.5s var(--ease),
+      color 0.5s var(--ease),
+      border-color 0.5s var(--ease),
+      transform 0.6s var(--ease);
+  }
+  .btn:hover {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+  .btn-solid {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: var(--ink);
+  }
+  .btn-solid:hover {
+    background: var(--marble);
+    border-color: var(--marble);
+    color: var(--ink);
+  }
+
+  /* Faint gold grid, masked toward the centre (Obsidian Constellation hero). */
+  .grid-bg {
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(70% 70% at 60% 50%, #000 20%, transparent 75%);
+    opacity: 0.5;
+  }
+}
+
+/* ------------------------------------------------------------------
+   <Reveal> — blur-to-sharp entrance
+   ------------------------------------------------------------------ */
+[data-reveal] {
+  opacity: 0;
+  filter: blur(14px);
+  transform: translate3d(0, 18px, 0);
+  transition:
+    opacity 1.4s var(--ease),
+    filter 1.4s var(--ease),
+    transform 1.4s var(--ease);
+}
+[data-reveal="in"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+}
+
+/* ------------------------------------------------------------------
+   <GateLogo>
+   ------------------------------------------------------------------ */
+.gate {
+  overflow: visible;
+}
+.gate-door,
+.gate-core,
+.gate-glow {
+  transition:
+    transform 1.2s var(--ease),
+    opacity 1.2s var(--ease);
+}
+.gate-core,
+.gate-glow {
+  transform-origin: 50px 60px;
+}
+.gate-glow {
+  opacity: 0;
+}
+.gate[data-open="true"] .gate-door-l {
+  transform: translateX(-9px);
+}
+.gate[data-open="true"] .gate-door-r {
+  transform: translateX(9px);
+}
+.gate[data-open="true"] .gate-core {
+  transform: scale(1.3);
+}
+.gate[data-open="true"] .gate-glow {
+  opacity: 0.22;
+  transform: scale(1.6);
+}
+
+.gate[data-animated="true"] .gate-stroke {
+  stroke-dasharray: 100 200;
+  stroke-dashoffset: 101;
+  animation: gate-draw 2.4s var(--ease) forwards;
+}
+.gate[data-animated="true"] .gate-d2 {
+  animation-delay: 0.25s;
+}
+.gate[data-animated="true"] .gate-d3 {
+  animation-delay: 0.5s;
+}
+.gate[data-animated="true"] .gate-node {
+  opacity: 0;
+  transform-origin: 50px 60px;
+  animation: gate-pop 0.9s var(--ease) 1.4s forwards;
+}
+
+@keyframes gate-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes gate-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ------------------------------------------------------------------
+   Reduced motion: everything lands in its final state immediately.
+   ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  [data-reveal] {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+  .gate[data-animated="true"] .gate-stroke {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .gate[data-animated="true"] .gate-node {
+    animation: none;
+    opacity: 1;
+  }
+}
