@@ -27,6 +27,11 @@ export type CountUpProps = {
  * JetBrains Mono, tabular figures, counts from 0 when scrolled into view using
  * the global easing. Reduced motion shows the final value immediately. Screen
  * readers always get the final value; the animated digits are aria-hidden.
+ *
+ * The server-rendered HTML always carries the real value (crawlers, no-JS
+ * users). After hydration the digits drop to 0 on the next frame and count up
+ * once in view; wrap above-the-fold instances in <Reveal> so that swap happens
+ * while the number is still blurred out.
  */
 export function CountUp({
   value,
@@ -42,7 +47,8 @@ export function CountUp({
   const shownRef = useRef(0);
   const startedRef = useRef(false);
   const [inView, setInView] = useState(false);
-  const [display, setDisplay] = useState(0);
+  // SSR / first paint shows the real value; the mount effect below resets it to 0 for the count.
+  const [display, setDisplay] = useState(value);
 
   const text = (n: number) =>
     format
@@ -51,6 +57,17 @@ export function CountUp({
           minimumFractionDigits: decimals,
           maximumFractionDigits: decimals,
         })}${suffix}`;
+
+  useEffect(() => {
+    if (prefersReducedMotion()) return;
+    // Next frame, so it is not a synchronous setState in the effect.
+    const raf = requestAnimationFrame(() => {
+      if (startedRef.current) return;
+      shownRef.current = 0;
+      setDisplay(0);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   useEffect(() => {
     const el = ref.current;

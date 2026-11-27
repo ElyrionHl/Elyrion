@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
-import { SmoothScroll } from "@/components/brand/SmoothScroll";
 import "lenis/dist/lenis.css";
 import "./globals.css";
 
@@ -46,11 +45,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <head>
         <noscript>
-          <style>{`[data-reveal]{opacity:1!important;filter:none!important;transform:none!important}`}</style>
+          <style>{`[data-reveal]{opacity:1!important;filter:none!important;transform:none!important}[data-reveal] .reveal-grow{width:var(--w)!important}[data-reveal] .gate *{animation-play-state:running!important}`}</style>
         </noscript>
       </head>
       <body className="flex min-h-dvh flex-col bg-obsidian text-marble">
-        <SmoothScroll />
         {children}
       </body>
     </html>

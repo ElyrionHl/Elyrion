@@ -7,6 +7,8 @@ export { identityAbi, poolAbi };
 export interface ContractConfig {
   identity?: Address;
   pool?: Address;
+  /** Treasury wallet (the backer whose pool shares back the pledge). Optional; display only. */
+  treasury?: Address;
   deployBlock: bigint;
   houseOwner?: Address;
 }
@@ -28,6 +30,7 @@ export function readConfig(): ContractConfig {
   return {
     identity: addr(process.env.NEXT_PUBLIC_IDENTITY),
     pool: addr(process.env.NEXT_PUBLIC_POOL),
+    treasury: addr(process.env.NEXT_PUBLIC_TREASURY),
     deployBlock: block(process.env.NEXT_PUBLIC_DEPLOY_BLOCK),
     houseOwner: addr(process.env.HOUSE_AGENT_OWNER),
   };

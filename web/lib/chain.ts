@@ -18,3 +18,8 @@ export function getRpcUrl(): string {
 export function makePublicClient() {
   return createPublicClient({ chain: elysium, transport: http(getRpcUrl()) });
 }
+
+/** Explorer page for an address. */
+export function explorerAddressUrl(address: string): string {
+  return `${ELYSIUM_EXPLORER}/address/${address}`;
+}

@@ -247,6 +247,98 @@
 }
 
 /* ------------------------------------------------------------------
+   Site shell: on a page with a full-bleed hero, the nav overlays it.
+   Unlayered on purpose so it beats the Nav's Tailwind utilities.
+   Without :has() support the nav simply stays in flow above the hero.
+   ------------------------------------------------------------------ */
+.site-shell:has([data-hero]) > .site-nav {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  border-bottom-color: transparent;
+}
+
+/* ------------------------------------------------------------------
+   Landing
+   ------------------------------------------------------------------ */
+.hero {
+  background: radial-gradient(80% 90% at 70% 45%, #1a160f 0%, var(--obsidian) 60%);
+}
+.constellation {
+  opacity: 0;
+  transition: opacity 1.8s var(--ease);
+}
+.constellation[data-ready="true"] {
+  opacity: 1;
+}
+
+/* Live indicator: gold dot with a soft expanding ring. */
+.live-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--gold);
+  flex-shrink: 0;
+}
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--gold);
+  animation: live-ring 2.4s var(--ease) infinite;
+}
+@keyframes live-ring {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+/* Pledge Gate */
+.gate-stage {
+  background: radial-gradient(60% 60% at 50% 42%, rgba(226, 197, 139, 0.08), transparent 70%);
+}
+.pledge[data-open="true"] .gate-stage {
+  background: radial-gradient(60% 60% at 50% 42%, rgba(226, 197, 139, 0.18), transparent 72%);
+}
+/* The Gate draws itself only once its block is revealed. */
+[data-reveal="pending"] .gate * {
+  animation-play-state: paused;
+}
+/* Progress fill grows to --w (the real on-chain %) when revealed. */
+.reveal-grow {
+  width: var(--w);
+  transition: width 1.8s var(--ease) 0.35s;
+}
+[data-reveal="pending"] .reveal-grow {
+  width: 0;
+}
+.pledge-head {
+  box-shadow:
+    0 0 0 4px rgba(226, 197, 139, 0.12),
+    0 0 18px rgba(226, 197, 139, 0.55);
+}
+
+/* Audience cards: the mockup's card hover. */
+.audience {
+  transition:
+    border-color 0.5s var(--ease),
+    transform 0.6s var(--ease),
+    box-shadow 0.6s var(--ease);
+}
+.audience:hover {
+  transform: translateY(-4px);
+  border-color: rgba(226, 197, 139, 0.4);
+  box-shadow: 0 30px 80px -40px rgba(226, 197, 139, 0.3);
+}
+
+/* ------------------------------------------------------------------
    Reduced motion: everything lands in its final state immediately.
    ------------------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce) {
@@ -272,5 +364,12 @@
   .gate[data-animated="true"] .gate-node {
     animation: none;
     opacity: 1;
+  }
+  .live-dot::after {
+    animation: none;
+    opacity: 0;
+  }
+  .audience:hover {
+    transform: none;
   }
 }
