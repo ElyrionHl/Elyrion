@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="240" viewBox="0 0 1280 240" role="img" aria-label="How Elyrion works: Register, Request a line, Borrow, Repay, Score">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#13110D"/>
+      <stop offset="1" stop-color="#0B0A08"/>
+    </linearGradient>
+    <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#E2C58B" stop-opacity="0"/>
+      <stop offset="1" stop-color="#FFE6B0" stop-opacity="1"/>
+    </linearGradient>
+    <radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#E2C58B" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#E2C58B" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="round"><rect width="1280" height="240" rx="20"/></clipPath>
+  </defs>
+  <style>
+    .rail{stroke:#E7CE96;stroke-opacity:.18;stroke-width:1.2}
+    .ring{fill:#0B0A08;stroke:#E2C58B;stroke-opacity:.5;stroke-width:1.4}
+    .num{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:12px;fill:#E2C58B;letter-spacing:1px}
+    .t{font-family:'Instrument Serif',Georgia,'Times New Roman',serif;font-size:26px;fill:#F4EFE6}
+    .d{font-family:Inter,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;fill:#F4EFE6;fill-opacity:.55}
+    .k{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:11px;fill:#E2C58B;letter-spacing:3px}
+    .lit{opacity:0;animation:lit 7.5s cubic-bezier(.32,.72,0,1) infinite}
+    .l1{animation-delay:.0s}.l2{animation-delay:1.5s}.l3{animation-delay:3s}.l4{animation-delay:4.5s}.l5{animation-delay:6s}
+    @keyframes lit{0%{opacity:0}6%{opacity:1}30%{opacity:.25}100%{opacity:0}}
+    @media (prefers-reduced-motion:reduce){.lit{animation:none;opacity:.25}.mover{display:none}}
+  </style>
+  <g clip-path="url(#round)">
+    <rect width="1280" height="240" fill="url(#bg)"/>
+    <text class="k" x="64" y="44">HOW IT WORKS</text>
+
+    <line class="rail" x1="128" y1="112" x2="1152" y2="112"/>
+
+    <g class="mover">
+      <rect x="-90" y="111" width="90" height="2" rx="1" fill="url(#trail)">
+        <animate attributeName="x" from="38" to="1062" dur="7.5s" repeatCount="indefinite" calcMode="spline" keySplines="0.32 0.72 0 1" keyTimes="0;1"/>
+      </rect>
+      <circle r="3.4" cy="112" fill="#FFE6B0">
+        <animate attributeName="cx" from="128" to="1152" dur="7.5s" repeatCount="indefinite" calcMode="spline" keySplines="0.32 0.72 0 1" keyTimes="0;1"/>
+      </circle>
+    </g>
+
+    <g>
+      <circle class="lit l1" cx="128" cy="112" r="34" fill="url(#nodeGlow)"/>
+      <circle class="ring" cx="128" cy="112" r="15"/>
+      <text class="num" x="128" y="116" text-anchor="middle">01</text>
+      <text class="t" x="128" y="172" text-anchor="middle">Register</text>
+      <text class="d" x="128" y="196" text-anchor="middle">ERC-8004-compatible identity</text>
+    </g>
+    <g>
+      <circle class="lit l2" cx="384" cy="112" r="34" fill="url(#nodeGlow)"/>
+      <circle class="ring" cx="384" cy="112" r="15"/>
+      <text class="num" x="384" y="116" text-anchor="middle">02</text>
+      <text class="t" x="384" y="172" text-anchor="middle">Request a line</text>
+      <text class="d" x="384" y="196" text-anchor="middle">A backer locks shares 1:1</text>
+    </g>
+    <g>
+      <circle class="lit l3" cx="640" cy="112" r="34" fill="url(#nodeGlow)"/>
+      <circle class="ring" cx="640" cy="112" r="15"/>
+      <text class="num" x="640" y="116" text-anchor="middle">03</text>
+      <text class="t" x="640" y="172" text-anchor="middle">Borrow</text>
+      <text class="d" x="640" y="196" text-anchor="middle">$5–$50 USDC · 1–7 days</text>
+    </g>
+    <g>
+      <circle class="lit l4" cx="896" cy="112" r="34" fill="url(#nodeGlow)"/>
+      <circle class="ring" cx="896" cy="112" r="15"/>
+      <text class="num" x="896" y="116" text-anchor="middle">04</text>
+      <text class="t" x="896" y="172" text-anchor="middle">Repay</text>
+      <text class="d" x="896" y="196" text-anchor="middle">1% per 30 days, split 50/25/25</text>
+    </g>
+    <g>
+      <circle class="lit l5" cx="1152" cy="112" r="34" fill="url(#nodeGlow)"/>
+      <circle class="ring" cx="1152" cy="112" r="15" stroke-opacity="1"/>
+      <text class="num" x="1152" y="116" text-anchor="middle">05</text>
+      <text class="t" x="1152" y="172" text-anchor="middle">Score</text>
+      <text class="d" x="1152" y="196" text-anchor="middle">0–1000, recomputable onchain</text>
+    </g>
+
+    <rect x="0.5" y="0.5" width="1279" height="239" rx="19.5" fill="none" stroke="#E7CE96" stroke-opacity=".16"/>
+  </g>
+</svg>
