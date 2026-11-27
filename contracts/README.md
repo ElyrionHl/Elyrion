@@ -25,24 +25,33 @@ Checklist before you broadcast:
 - [ ] Treasury = the wallet that will hold the $1,000 pledge deposit.
 - [ ] Guardian = a separate hot wallet allowed only to pause.
 - [ ] The deployer wallet holds enough HYPE for gas.
-- [ ] Copy `.env.example` to `.env` and fill in `USDC`, `TREASURY`, `GUARDIAN` (addresses only).
+- [ ] Set `USDC`, `TREASURY`, `GUARDIAN` (addresses only) as environment variables in the window you deploy from.
 - [ ] Never paste a private key into any file or env var. Sign with `--interactive` (prompts in your terminal) or `--account <keystore>`.
 
-```
-set -a; source .env; set +a
-forge script script/Deploy.s.sol --rpc-url https://rpc.elysium.kinetiq.xyz --broadcast --interactive
+Windows PowerShell, from the repo root (`forge` is installed with `foundryup` from Git Bash, into
+`%USERPROFILE%\.foundry\bin`):
+
+```powershell
+cd contracts
+$env:USDC = "0x..."
+$env:TREASURY = "0x..."
+$env:GUARDIAN = "0x..."
+& "$HOME\.foundry\bin\forge.exe" script script/Deploy.s.sol --rpc-url https://rpc.elysium.kinetiq.xyz --broadcast --interactive
 ```
 
 (Or `--account <keystore-name>` with a key imported via `cast wallet import`.) The script reverts with a clear
-message if `USDC`, `TREASURY` or `GUARDIAN` is missing or zero.
+message if `USDC`, `TREASURY` or `GUARDIAN` is missing or zero. `.env.example` lists the same three variables for
+reference; the commands above do not read a `.env` file.
 
 Afterwards:
 
 - [ ] Save the logged `IDENTITY=`, `POOL=` and `DEPLOY_BLOCK=` values. `DEPLOY_BLOCK` is the block seen during
   simulation, so it is at or before the real deployment; the exact block is in
   `broadcast/Deploy.s.sol/99901/run-latest.json`. The web indexer needs it.
-- [ ] Web reads `NEXT_PUBLIC_IDENTITY` / `NEXT_PUBLIC_POOL`; the MCP package reads `ELYRION_IDENTITY` / `ELYRION_POOL`.
-- [ ] The treasury wallet approves USDC to the pool and calls `deposit` for the pledge.
+- [ ] Web reads `NEXT_PUBLIC_IDENTITY` / `NEXT_PUBLIC_POOL` / `NEXT_PUBLIC_DEPLOY_BLOCK`; the MCP server reads
+  `ELYRION_IDENTITY` / `ELYRION_POOL` / `ELYRION_FROM_BLOCK`.
+- [ ] The treasury wallet approves USDC to the pool and calls `deposit` for the full $1,000 pledge in ONE
+  transaction. The site's Gate reads `depositedOf(treasury)` (net USDC principal deposited) and opens at $1,000.
 
 ## Local end-to-end smoke test
 
