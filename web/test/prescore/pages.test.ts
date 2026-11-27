@@ -104,6 +104,13 @@ describe("reading sequence", () => {
     expect(partial[1]).toBe("TOKEN HISTORY COULD NOT BE READ");
     expect(partial.join(" ")).not.toMatch(/NO FOOTSTEPS|WEIGHING 0/);
   });
+  it("keeps the singular for one transaction, and a partial reading never weighs 0 tokens", () => {
+    const one = metrics({ txCount: 1, distinctTokens: 2 });
+    expect(readingLines(one)[0]).toBe("READING 1 TRANSACTION");
+    const p = readingLines(metrics({ txCount: 5, distinctTokens: 0 }), { partial: true });
+    expect(p[0]).toBe("READING 5 TRANSACTIONS");
+    expect(p[2]).toBe("TOKENS NOT READ");
+  });
   it("is skipped for results older than 10 s (cache)", () => {
     expect(isFresh(1_000_000, 1_005_000)).toBe(true);
     expect(isFresh(1_000_000, 1_010_001)).toBe(false);

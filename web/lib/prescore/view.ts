@@ -55,7 +55,7 @@ export function readingLines(m: Metrics, opts: { partial?: boolean } = {}): [str
       ? "NONE SENT IN THE LATEST 1,000"
       : `READING ${txCountLabel(m)} ${plural(m.txCount, "TRANSACTION", "TRANSACTIONS", m.windowFull)}`,
     first,
-    kind === "partial"
+    opts.partial && m.distinctTokens === 0
       ? "TOKENS NOT READ"
       : `WEIGHING ${countLabel(m.distinctTokens, m.tokenWindowFull)} ${plural(m.distinctTokens, "TOKEN", "TOKENS", m.tokenWindowFull)}`,
   ];
