@@ -1,6 +1,7 @@
 // Pure view helpers for the Pre-Score pages, share card and OG image. No React, no I/O: unit-tested.
 import { ACTIVITY_MAX, BREADTH_MAX, CONSISTENCY_MAX, LONGEVITY_MAX, MAX_TXS } from "./constants";
 import type { Metrics } from "./metrics";
+import { recordKind } from "./profile";
 import type { ScoreBreakdown } from "./score";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -35,17 +36,28 @@ export function txCountLabel(m: Pick<Metrics, "txCount" | "windowFull">): string
 const plural = (n: number, one: string, many: string, windowFull = false) => (n === 1 && !windowFull ? one : many);
 
 /** The three mono lines of the reading sequence, built only from real numbers. */
-export function readingLines(m: Metrics): [string, string, string] {
+export function readingLines(m: Metrics, opts: { partial?: boolean } = {}): [string, string, string] {
+  const kind = recordKind(m, opts);
+  const first =
+    kind === "active"
+      ? m.firstBlock !== null
+        ? `FIRST FOOTSTEP · BLOCK ${fmt(m.firstBlock)}`
+        : m.firstTs !== null
+          ? `FIRST FOOTSTEP · ${fmt(m.ageDays)} ${plural(m.ageDays, "DAY", "DAYS")} AGO`
+          : "FIRST FOOTSTEP · NOT READ"
+      : kind === "token-only"
+        ? "NO TRANSACTION OF ITS OWN YET"
+        : kind === "partial"
+          ? "TOKEN HISTORY COULD NOT BE READ"
+          : "NO FOOTSTEPS YET";
   return [
-    `READING ${txCountLabel(m)} ${plural(m.txCount, "TRANSACTION", "TRANSACTIONS", m.windowFull)}`,
-    m.firstBlock !== null
-      ? `FIRST FOOTSTEP · BLOCK ${fmt(m.firstBlock)}`
-      : m.firstTs !== null
-        ? `FIRST FOOTSTEP · ${fmt(m.ageDays)} ${plural(m.ageDays, "DAY", "DAYS")} AGO`
-        : m.distinctTokens > 0
-          ? "NO TRANSACTION OF ITS OWN YET"
-          : "NO FOOTSTEPS YET",
-    `WEIGHING ${countLabel(m.distinctTokens, m.tokenWindowFull)} ${plural(m.distinctTokens, "TOKEN", "TOKENS", m.tokenWindowFull)}`,
+    m.windowFull && m.txCount === 0
+      ? "NONE SENT IN THE LATEST 1,000"
+      : `READING ${txCountLabel(m)} ${plural(m.txCount, "TRANSACTION", "TRANSACTIONS", m.windowFull)}`,
+    first,
+    kind === "partial"
+      ? "TOKENS NOT READ"
+      : `WEIGHING ${countLabel(m.distinctTokens, m.tokenWindowFull)} ${plural(m.distinctTokens, "TOKEN", "TOKENS", m.tokenWindowFull)}`,
   ];
 }
 
@@ -83,14 +95,14 @@ export function breakdownRows(s: ScoreBreakdown, m: Metrics): BreakdownRow[] {
       label: "Activity",
       points: s.activity,
       max: ACTIVITY_MAX,
-      detail: `${txCountLabel(m)} successful ${plural(m.txCount, "transaction", "transactions", m.windowFull)} sent`,
+      detail: m.windowFull && m.txCount === 0 ? "No successful transactions sent in the latest 1,000 read" : `${txCountLabel(m)} successful ${plural(m.txCount, "transaction", "transactions", m.windowFull)} sent`,
     },
     {
       key: "consistency",
       label: "Consistency",
       points: s.consistency,
       max: CONSISTENCY_MAX,
-      detail: `${countLabel(m.activeDays, m.windowFull)} active ${plural(m.activeDays, "day", "days", m.windowFull)} (UTC)`,
+      detail: m.windowFull && m.activeDays === 0 ? "No active days in the latest 1,000 read" : `${countLabel(m.activeDays, m.windowFull)} active ${plural(m.activeDays, "day", "days", m.windowFull)} (UTC)`,
     },
     {
       key: "breadth",
@@ -98,7 +110,7 @@ export function breakdownRows(s: ScoreBreakdown, m: Metrics): BreakdownRow[] {
       points: s.breadth,
       max: BREADTH_MAX,
       // distinctContracts counts every `to` address, wallets included: "addresses sent to", never "contracts".
-      detail: `${countLabel(m.distinctTokens, m.tokenWindowFull)} ${plural(m.distinctTokens, "token", "tokens", m.tokenWindowFull)} · ${countLabel(m.distinctContracts, m.windowFull)} ${plural(m.distinctContracts, "address", "addresses", m.windowFull)} sent to`,
+      detail: `${countLabel(m.distinctTokens, m.tokenWindowFull)} ${plural(m.distinctTokens, "token", "tokens", m.tokenWindowFull)} · ${m.windowFull && m.distinctContracts === 0 ? "no addresses sent to in the latest 1,000" : `${countLabel(m.distinctContracts, m.windowFull)} ${plural(m.distinctContracts, "address", "addresses", m.windowFull)} sent to`}`,
     },
   ];
 }

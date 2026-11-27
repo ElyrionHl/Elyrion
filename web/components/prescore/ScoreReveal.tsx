@@ -87,7 +87,7 @@ const tierRange = (tier: string) => {
  */
 export function ScoreReveal({ result }: { result: WalletResult }) {
   const { score, metrics, traits, profile, agents, address, partial } = result;
-  const lines = readingLines(metrics);
+  const lines = readingLines(metrics, { partial });
   const [phase, setPhase] = useState<Phase>("pending");
   const [step, setStep] = useState(-1);
   const done = phase === "done";

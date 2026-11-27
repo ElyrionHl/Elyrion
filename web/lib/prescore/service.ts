@@ -127,7 +127,7 @@ async function compute(address: `0x${string}`, d: ServiceDeps): Promise<PreScore
       score,
       metrics,
       traits: traitIds.map((id) => ({ id, label: TRAIT_LABELS[id] })),
-      profile: buildProfile(address, score.tier, traitIds, metrics, { hasAgent: agents.length > 0 }),
+      profile: buildProfile(address, score.tier, traitIds, metrics, { hasAgent: agents.length > 0, partial: raw.partial }),
       agents,
       partial: raw.partial,
       computedAt: nowMs,

@@ -44,6 +44,10 @@ export const TRAIT_LABELS: Record<TraitId, string> = {
 /** Used instead of a tier opener when the address has no history at all (spec §4). */
 export const NO_HISTORY_OPENER = "No footsteps on Elysium yet.";
 
+/** Partial reading (token transfers could not be read) with no counted transaction: no claim of an empty history. */
+export const PARTIAL_EMPTY_OPENER = "Token history could not be read this time; no transaction of its own was found.";
+export const PARTIAL_EMPTY_CLOSER = "Check again shortly for the full reading.";
+
 /**
  * Opener for an address with token transfers but no transaction at all in txlist (sent or received). Every line must
  * hold for any such address: tokens may have moved in or out, and it has sent no transaction.
@@ -51,8 +55,8 @@ export const NO_HISTORY_OPENER = "No footsteps on Elysium yet.";
 export const TOKEN_ONLY_OPENERS: string[] = [
   "Tokens have moved to or from this address; it has yet to send a transaction of its own.",
   "Token transfers mark this address on the ledger, but it has sent no transaction of its own.",
-  "The ledger knows this address through token transfers alone.",
-  "Only token transfers touch this address so far. No transaction of its own is on record.",
+  "The ledger shows this address in token transfers, with no transaction of its own.",
+  "Token transfers touch this address; no transaction of its own was counted.",
   "This address appears in token transfers, not in transactions it sent.",
   "{tokens} kinds of token have moved to or from this address, and it has sent no transaction itself.",
 ];

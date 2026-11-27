@@ -8,6 +8,7 @@ import { DISCLAIMER, TIER_BOUNDS } from "../../lib/prescore/constants";
 import { FONT_RETRY_MS, getOgFonts, OG_FONT_FILES, parseFontCss, resetOgFonts, type OgFont } from "../../lib/prescore/og-fonts";
 import { preScoreCardResponse } from "../../lib/prescore/og-render";
 import type { Metrics } from "../../lib/prescore/metrics";
+import { recordKind } from "../../lib/prescore/profile";
 import { scoreMetrics } from "../../lib/prescore/score";
 import type { PreScoreResult } from "../../lib/prescore/service";
 import {
@@ -66,8 +67,8 @@ describe("reading sequence", () => {
   it('shows "1,000+" when the fetch window is full, singulars, and no invented block', () => {
     expect(readingLines(metrics({ txCount: 1000, windowFull: true }))[0]).toBe("READING 1,000+ TRANSACTIONS");
     expect(txCountLabel({ txCount: 1000, windowFull: true })).toBe("1,000+");
-    const empty = readingLines(metrics({ txCount: 1, firstBlock: null, firstTs: null, distinctTokens: 1 }));
-    expect(empty).toEqual(["READING 1 TRANSACTION", "NO TRANSACTION OF ITS OWN YET", "WEIGHING 1 TOKEN"]);
+    const empty = readingLines(metrics({ txCount: 0, firstBlock: null, firstTs: null, distinctTokens: 1 }));
+    expect(empty).toEqual(["READING 0 TRANSACTIONS", "NO TRANSACTION OF ITS OWN YET", "WEIGHING 1 TOKEN"]);
     const none = readingLines(metrics({ txCount: 0, firstBlock: null, firstTs: null, distinctTokens: 0 }));
     expect(none).toEqual(["READING 0 TRANSACTIONS", "NO FOOTSTEPS YET", "WEIGHING 0 TOKENS"]);
     // A first tx with an unusable block number still has a first footstep.
@@ -78,6 +79,30 @@ describe("reading sequence", () => {
     expect(readingLines(metrics({ txCount: 1, windowFull: true }))[0]).toBe("READING 1+ TRANSACTIONS");
     expect(readingLines(metrics({ distinctTokens: 14, tokenWindowFull: true }))[2]).toBe("WEIGHING 14+ TOKENS");
     expect(readingLines(metrics({ txCount: 640 }))[0]).toBe("READING 640 TRANSACTIONS");
+  });
+  it("never shows 0+ when a full window held none (F1)", () => {
+    const m = metrics({ txCount: 0, windowFull: true, activeDays: 0, distinctContracts: 0 });
+    expect(readingLines(m)[0]).toBe("NONE SENT IN THE LATEST 1,000");
+    expect(readingLines(metrics({ txCount: 1, windowFull: true }))[0]).toBe("READING 1+ TRANSACTIONS");
+    const rows = breakdownRows(scoreMetrics(m), m).map((r) => r.detail);
+    expect(rows[1]).toBe("No successful transactions sent in the latest 1,000 read");
+    expect(rows[2]).toBe("No active days in the latest 1,000 read");
+    expect(rows[3]).toBe("14 tokens · no addresses sent to in the latest 1,000");
+    for (const d of rows) expect(d).not.toMatch(/0\+/);
+  });
+  it("reading line agrees with recordKind, and a partial empty reading claims no history (F3, F4)", () => {
+    const tokenOnly = metrics({ txCount: 0, firstBlock: null, firstTs: null, distinctTokens: 3 });
+    expect(recordKind(tokenOnly)).toBe("token-only");
+    expect(readingLines(tokenOnly)[1]).toBe("NO TRANSACTION OF ITS OWN YET");
+    // Blocks unknown but a counted tx exists: active, so never "NO FOOTSTEPS YET".
+    const active = metrics({ txCount: 3, firstBlock: null, firstTs: null, distinctTokens: 0 });
+    expect(recordKind(active)).toBe("active");
+    expect(readingLines(active)[1]).toBe("FIRST FOOTSTEP · NOT READ");
+    const empty = metrics({ txCount: 0, firstBlock: null, firstTs: null, distinctTokens: 0 });
+    expect(readingLines(empty)[1]).toBe("NO FOOTSTEPS YET");
+    const partial = readingLines(empty, { partial: true });
+    expect(partial[1]).toBe("TOKEN HISTORY COULD NOT BE READ");
+    expect(partial.join(" ")).not.toMatch(/NO FOOTSTEPS|WEIGHING 0/);
   });
   it("is skipped for results older than 10 s (cache)", () => {
     expect(isFresh(1_000_000, 1_005_000)).toBe(true);

@@ -184,6 +184,24 @@ describe("buildProfile", () => {
     }
   });
 
+  it("token-only openers never claim 'alone' or 'only' (internal transfers are not read) (F2)", () => {
+    for (const o of TOKEN_ONLY_OPENERS) expect(o, o).not.toMatch(/(alone|only)/i);
+    expect(TOKEN_ONLY_OPENERS).toContain("The ledger shows this address in token transfers, with no transaction of its own.");
+  });
+
+  it("a partial reading with no counted tx claims no empty history (F3)", () => {
+    const partial = { partial: true };
+    expect(recordKind(EMPTY, partial)).toBe("partial");
+    expect(recordKind(EMPTY)).toBe("empty");
+    expect(recordKind(MID, partial)).toBe("active");
+    for (const a of addresses(40, 41)) {
+      const p = buildProfile(a, "Wanderer", ["newcomer"], EMPTY, partial);
+      expect(p.startsWith("Token history could not be read this time; no transaction of its own was found."), p).toBe(true);
+      expect(p, p).not.toMatch(/No footsteps|nothing to weigh|holds no entries|record is blank|first step|first mark|gate is open|—|[{}]/i);
+      expect(p.length).toBeLessThanOrEqual(280);
+    }
+  });
+
   it("an agent owner never gets a closer urging registration; others may", () => {
     expect(REGISTER_CLOSERS.every((c) => CLOSERS.includes(c))).toBe(true);
     const pool = closersFor(true);

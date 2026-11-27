@@ -2,7 +2,7 @@ import { MAX_TXS } from "./constants";
 import type { Metrics } from "./metrics";
 import type { Tier } from "./score";
 import {
-  AGENT_CLOSERS, CLOSERS, EMPTY_LINES, NO_HISTORY_OPENER, OPENERS, REGISTER_CLOSERS, TOKEN_ONLY_OPENERS, TRAIT_LINES,
+  AGENT_CLOSERS, CLOSERS, EMPTY_LINES, NO_HISTORY_OPENER, OPENERS, PARTIAL_EMPTY_CLOSER, PARTIAL_EMPTY_OPENER, REGISTER_CLOSERS, TOKEN_ONLY_OPENERS, TRAIT_LINES,
 } from "./templates";
 import type { TraitId } from "./traits";
 
@@ -99,6 +99,8 @@ function pick(pool: string[], m: Metrics, rand: () => number, used: { slots: Set
 export type ProfileOptions = {
   /** The address owns a registered agent: closers that urge registering one are left out. */
   hasAgent?: boolean;
+  /** Token transfers could not be read: an empty txlist then says nothing about tokens. */
+  partial?: boolean;
 };
 
 /** Closer pool: without an agent every closer; with one, the neutral closers plus agent-aware ones. */
@@ -107,9 +109,10 @@ export function closersFor(hasAgent: boolean): string[] {
 }
 
 /** What kind of record the metrics describe, which decides the opener pool. */
-export function recordKind(m: Metrics): "empty" | "token-only" | "active" {
+export function recordKind(m: Metrics, opts: Pick<ProfileOptions, "partial"> = {}): "empty" | "token-only" | "active" | "partial" {
   if (m.firstTs !== null || m.firstBlock !== null || m.txCount > 0) return "active";
-  return m.distinctTokens > 0 ? "token-only" : "empty";
+  if (m.distinctTokens > 0) return "token-only";
+  return opts.partial ? "partial" : "empty";
 }
 
 /**
@@ -123,7 +126,9 @@ export function buildProfile(address: string, tier: Tier, traits: TraitId[], m: 
   const used = { slots: new Set<string>(), motifs: new Set<string>() };
   const fill = (s: string) => fillSlots(s, m, tier);
   const closers = closersFor(!!opts.hasAgent);
-  const kind = recordKind(m);
+  const kind = recordKind(m, opts);
+
+  if (kind === "partial") return `${PARTIAL_EMPTY_OPENER} ${PARTIAL_EMPTY_CLOSER}`;
 
   if (kind === "empty") {
     used.motifs.add("footsteps");
