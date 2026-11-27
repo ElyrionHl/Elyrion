@@ -19,7 +19,7 @@ export interface Config {
   rpcUrl: string;
   /** Private key of the agent's own wallet; only needed by write tools. Never log or return. */
   agentKey?: string;
-  /** First block to scan for event logs (default 0). */
+  /** First block to scan for event logs: the contracts' deploy block (default 0, which makes get_loans slow). */
   fromBlock: bigint;
 }
 
@@ -74,7 +74,8 @@ export function normalizeKey(key: string): Hex | undefined {
 /** Clients pinned to chain id 99901. */
 export function makeClients(cfg: Config) {
   const chain = makeChain(cfg.rpcUrl);
-  const publicClient = createPublicClient({ chain, transport: http(cfg.rpcUrl) });
+  // JSON-RPC batching (Elysium has no multicall3): get_loans' parallel getLogs ranges go out as one HTTP batch.
+  const publicClient = createPublicClient({ chain, transport: http(cfg.rpcUrl, { batch: { batchSize: 100 } }) });
   const getWallet = () => {
     if (!cfg.agentKey) {
       throw new ConfigError(

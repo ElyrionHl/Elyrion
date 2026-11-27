@@ -21,6 +21,12 @@ const USDC_DECIMALS = 6;
 const DAY = 86_400n;
 const FEE_BPS = 100n;
 const MIN_USD = 5;
+/** Block range per getLogs call (public RPCs cap the range). */
+export const LOG_CHUNK = 10_000n;
+/** getLogs ranges in flight at once. */
+const LOG_CONCURRENCY = 8;
+/** Largest number of ranges get_loans scans before asking for ELYRION_FROM_BLOCK. */
+export const MAX_LOG_CHUNKS = 2_000;
 const MAX_USD = 50;
 
 /** An error whose message is safe and readable to show to the agent. */
@@ -73,6 +79,23 @@ function usdAmount(label: string) {
 }
 
 const toUnits = (usd: number) => parseUnits(usd.toString(), USDC_DECIMALS);
+
+/** [from, to] block ranges of at most LOG_CHUNK blocks covering from..latest. */
+export function logRanges(from: bigint, latest: bigint): [bigint, bigint][] {
+  if (from > latest) return [];
+  const count = (latest - from) / LOG_CHUNK + 1n;
+  if (count > BigInt(MAX_LOG_CHUNKS)) {
+    throw new ToolError(
+      `Scanning blocks ${from}-${latest} would take ${count} log requests. Set ELYRION_FROM_BLOCK to the contracts' deploy block (see the Elyrion Docs page).`,
+    );
+  }
+  const out: [bigint, bigint][] = [];
+  for (let s = from; s <= latest; s += LOG_CHUNK) {
+    const e = s + LOG_CHUNK - 1n;
+    out.push([s, e > latest ? latest : e]);
+  }
+  return out;
+}
 
 async function assertChain(ctx: ToolContext) {
   const id = await ctx.publicClient.getChainId();
@@ -231,13 +254,27 @@ const getLoans: ToolDef = {
   async handler(ctx, args: { agentId: number }) {
     await assertChain(ctx);
     const agentId = BigInt(args.agentId);
-    const base = { address: ctx.config.pool, fromBlock: ctx.config.fromBlock, toBlock: "latest" as const };
-    const logs = (name: "Borrowed" | "Repaid" | "Defaulted") =>
-      ctx.publicClient.getLogs({
-        ...base,
-        event: getAbiItem({ abi: poolAbi, name }),
-        args: { agentId },
-      } as never) as unknown as Promise<{ args: Record<string, bigint> }[]>;
+    const latest = await ctx.publicClient.getBlockNumber();
+    const ranges = logRanges(ctx.config.fromBlock, latest);
+    const logs = async (name: "Borrowed" | "Repaid" | "Defaulted") => {
+      const out: { args: Record<string, bigint> }[] = [];
+      for (let i = 0; i < ranges.length; i += LOG_CONCURRENCY) {
+        const parts = await Promise.all(
+          ranges.slice(i, i + LOG_CONCURRENCY).map(
+            ([fromBlock, toBlock]) =>
+              ctx.publicClient.getLogs({
+                address: ctx.config.pool,
+                event: getAbiItem({ abi: poolAbi, name }),
+                args: { agentId },
+                fromBlock,
+                toBlock,
+              } as never) as unknown as Promise<{ args: Record<string, bigint> }[]>,
+          ),
+        );
+        for (const p of parts) out.push(...p);
+      }
+      return out;
+    };
     const [borrowed, repaid, defaulted] = await Promise.all([logs("Borrowed"), logs("Repaid"), logs("Defaulted")]);
     const repaidIds = new Set(repaid.map((l) => l.args.loanId));
     const defaultedIds = new Set(defaulted.map((l) => l.args.loanId));

@@ -32,7 +32,8 @@ interface MockOpts {
   logs?: unknown[];
   allowance?: bigint;
   loan?: Record<string, unknown>;
-  getLogs?: (a: { event: { name: string } }) => unknown[];
+  getLogs?: (a: { event: { name: string }; fromBlock: bigint; toBlock: bigint }) => unknown[];
+  head?: bigint;
 }
 
 function makeCtx(opts: MockOpts = {}, withKey = true) {
@@ -71,7 +72,8 @@ function makeCtx(opts: MockOpts = {}, withKey = true) {
     }),
     simulateContract: vi.fn(async (a: Record<string, unknown>) => ({ request: a })),
     waitForTransactionReceipt: vi.fn(async () => ({ status: "success", logs: opts.logs ?? [], blockNumber: 5n })),
-    getLogs: vi.fn(async (a: { event: { name: string } }) => (opts.getLogs ? opts.getLogs(a) : [])),
+    getBlockNumber: vi.fn(async () => opts.head ?? 100n),
+    getLogs: vi.fn(async (a: { event: { name: string }; fromBlock: bigint; toBlock: bigint }) => (opts.getLogs ? opts.getLogs(a) : [])),
   };
   const ctx: ToolContext = {
     config: { identity: IDENTITY, pool: POOL, fromBlock: 0n },
@@ -236,6 +238,53 @@ describe("read tools", () => {
     });
     const loans = JSON.parse(text(await callTool(ctx, "get_loans", { agentId: 1 }))).loans;
     expect(loans.map((l: { status: string }) => l.status)).toEqual(["repaid", "defaulted", "open"]);
+  });
+});
+
+describe("get_loans chunking", () => {
+  it("scans ELYRION_FROM_BLOCK..latest in 10,000-block ranges and merges them", async () => {
+    const b = (id: bigint, block: bigint) => ({
+      args: { loanId: id, agentId: 1n, borrower: OWNER, amount: 5_000_000n, fee: 1_667n, dueAt: 100n },
+      blockNumber: block,
+    });
+    const all = [b(1n, 1_000n), b(2n, 15_000n), b(3n, 25_123n)];
+    const { ctx, publicClient } = makeCtx({
+      head: 25_500n,
+      getLogs: ({ event, fromBlock, toBlock }) =>
+        event.name === "Borrowed"
+          ? all.filter((l) => l.blockNumber >= fromBlock && l.blockNumber <= toBlock)
+          : event.name === "Repaid" && fromBlock <= 15_001n && 15_001n <= toBlock
+            ? [{ args: { loanId: 2n, agentId: 1n } }]
+            : [],
+    });
+    ctx.config.fromBlock = 500n;
+    const loans = JSON.parse(text(await callTool(ctx, "get_loans", { agentId: 1 }))).loans;
+    expect(loans.map((l: { loanId: string; status: string }) => [l.loanId, l.status])).toEqual([
+      ["1", "open"],
+      ["2", "repaid"],
+      ["3", "open"],
+    ]);
+    const ranges = (publicClient.getLogs.mock.calls as unknown as [{ event: { name: string }; fromBlock: bigint; toBlock: bigint }][])
+      .map(([a]) => a)
+      .filter((a) => a.event.name === "Borrowed")
+      .map((a) => [a.fromBlock, a.toBlock]);
+    expect(ranges).toEqual([
+      [500n, 10_499n],
+      [10_500n, 20_499n],
+      [20_500n, 25_500n],
+    ]);
+    for (const [, a] of publicClient.getLogs.mock.calls.entries()) {
+      const r = a[0] as { fromBlock: bigint; toBlock: bigint };
+      expect(r.toBlock - r.fromBlock).toBeLessThan(10_000n);
+      expect(typeof r.toBlock).toBe("bigint"); // never "latest"
+    }
+  });
+
+  it("refuses an unbounded scan and points to ELYRION_FROM_BLOCK", async () => {
+    const { ctx } = makeCtx({ head: 50_000_000n });
+    const r = await callTool(ctx, "get_loans", { agentId: 1 });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("ELYRION_FROM_BLOCK");
   });
 });
 

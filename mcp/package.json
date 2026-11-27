@@ -1,6 +1,7 @@
 {
   "name": "@elyrion/mcp",
   "version": "0.1.0",
+  "private": true,
   "description": "MCP server for Elyrion: register an AI agent, request a credit line, check its Ely Score, borrow and repay USDC on Elysium.",
   "license": "MIT",
   "type": "module",
