@@ -1,4 +1,4 @@
-import type { Address, PublicClient } from "viem";
+import type { Address, Hash, PublicClient } from "viem";
 import { makePublicClient } from "./chain";
 import { identityAbi, poolAbi, readConfig, type ContractConfig } from "./contracts";
 
@@ -48,15 +48,36 @@ const EMPTY_STATS: Stats = {
   recentEvents: [],
 };
 
+export type LoanStatus = "open" | "repaid" | "defaulted";
+
+/** One loan, assembled from its Borrowed and Repaid/Defaulted events. */
+export interface AgentLoan {
+  loanId: number;
+  agentId: number;
+  /** USDC, 6 decimals. */
+  principal: bigint;
+  /** USDC, 6 decimals. */
+  fee: bigint;
+  /** Unix seconds (from Borrowed); 0 when the Borrowed event was not indexed. */
+  dueAt: number;
+  status: LoanStatus;
+  borrowBlock: bigint | null;
+  borrowTx: Hash | null;
+  closeBlock: bigint | null;
+  closeTx: Hash | null;
+}
+
 interface Snapshot {
   agents: AgentRow[];
   stats: Stats;
+  loans: AgentLoan[];
 }
 
 interface Ev {
   eventName: string;
   blockNumber: bigint;
   logIndex: number;
+  transactionHash?: Hash | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   args: any;
 }
@@ -181,6 +202,27 @@ export function createIndexer(cfg: ContractConfig, client: PublicClient) {
     let loansRepaid = 0;
     let defaults = 0;
     const flow: RecentEvent[] = [];
+    const loans = new Map<string, AgentLoan>();
+    const loan = (l: Ev): AgentLoan => {
+      const k = String(l.args.loanId);
+      let x = loans.get(k);
+      if (!x) {
+        x = {
+          loanId: Number(l.args.loanId),
+          agentId: Number(l.args.agentId),
+          principal: 0n,
+          fee: 0n,
+          dueAt: 0,
+          status: "open",
+          borrowBlock: null,
+          borrowTx: null,
+          closeBlock: null,
+          closeTx: null,
+        };
+        loans.set(k, x);
+      }
+      return x;
+    };
     for (const l of poolLogs.sort(byPosition)) {
       const a = l.args;
       switch (l.eventName) {
@@ -199,17 +241,36 @@ export function createIndexer(cfg: ContractConfig, client: PublicClient) {
           d.hasLine = false;
           break;
         }
-        case "Defaulted":
+        case "Defaulted": {
           draft(a.agentId).defaulted = true;
           defaults++;
+          const x = loan(l);
+          x.status = "defaulted";
+          x.closeBlock = l.blockNumber;
+          x.closeTx = l.transactionHash ?? null;
           break;
-        case "Repaid":
+        }
+        case "Repaid": {
           loansRepaid++;
           flow.push({ kind: "Repaid", agentId: Number(a.agentId), block: l.blockNumber });
+          const x = loan(l);
+          x.status = "repaid";
+          if (x.principal === 0n) x.principal = BigInt(a.amount ?? 0);
+          if (x.fee === 0n) x.fee = BigInt(a.fee ?? 0);
+          x.closeBlock = l.blockNumber;
+          x.closeTx = l.transactionHash ?? null;
           break;
-        case "Borrowed":
+        }
+        case "Borrowed": {
           flow.push({ kind: "Borrowed", agentId: Number(a.agentId), block: l.blockNumber });
+          const x = loan(l);
+          x.principal = BigInt(a.amount ?? 0);
+          x.fee = BigInt(a.fee ?? 0);
+          x.dueAt = Number(a.dueAt ?? 0);
+          x.borrowBlock = l.blockNumber;
+          x.borrowTx = l.transactionHash ?? null;
           break;
+        }
       }
     }
 
@@ -257,6 +318,7 @@ export function createIndexer(cfg: ContractConfig, client: PublicClient) {
         defaults,
         recentEvents: flow.slice(-20).reverse(),
       },
+      loans: [...loans.values()].sort((x, y) => y.loanId - x.loanId),
     };
   }
 
@@ -283,6 +345,11 @@ export function createIndexer(cfg: ContractConfig, client: PublicClient) {
       const s = await snapshot();
       return s ? { ok: true, item: s.agents.find((a) => a.id === id) ?? null } : { ok: false, item: null };
     },
+    /** This agent's loans, newest first. */
+    async getAgentLoans(id: number): Promise<{ ok: boolean; items: AgentLoan[] }> {
+      const s = await snapshot();
+      return s ? { ok: true, items: s.loans.filter((l) => l.agentId === id) } : { ok: false, items: [] };
+    },
     async getAgentsByOwner(owner: string): Promise<{ ok: boolean; items: AgentRow[] }> {
       const s = await snapshot();
       return s
@@ -301,3 +368,4 @@ export const getStats = () => indexer().getStats();
 export const getAgents = () => indexer().getAgents();
 export const getAgent = (id: number) => indexer().getAgent(id);
 export const getAgentsByOwner = (owner: string) => indexer().getAgentsByOwner(owner);
+export const getAgentLoans = (id: number) => indexer().getAgentLoans(id);

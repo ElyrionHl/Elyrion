@@ -1,4 +1,6 @@
 import { Footer, type FooterAddress } from "@/components/brand/Footer";
+import { ConnectButton } from "@/components/ConnectButton";
+import { Providers } from "@/components/Providers";
 import { Nav } from "@/components/brand/Nav";
 import { SmoothScroll } from "@/components/brand/SmoothScroll";
 import { explorerAddressUrl } from "@/lib/chain";
@@ -24,13 +26,15 @@ function footerAddresses(): FooterAddress[] {
  */
 export default function SiteLayout({ children }: LayoutProps<"/">) {
   return (
-    <div className="site-shell relative flex min-h-dvh flex-1 flex-col">
-      <SmoothScroll />
-      <Nav className="site-nav" />
-      <main id="main" className="flex-1">
-        {children}
-      </main>
-      <Footer addresses={footerAddresses()} />
-    </div>
+    <Providers>
+      <div className="site-shell relative flex min-h-dvh flex-1 flex-col">
+        <SmoothScroll />
+        <Nav className="site-nav" action={<ConnectButton />} />
+        <main id="main" className="flex-1">
+          {children}
+        </main>
+        <Footer addresses={footerAddresses()} />
+      </div>
+    </Providers>
   );
 }

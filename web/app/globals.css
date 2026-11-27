@@ -373,3 +373,13 @@
     transform: none;
   }
 }
+
+/* ------------------------------------------------------------------
+   Board / agent pages
+   ------------------------------------------------------------------ */
+.board-row {
+  transition: background-color 0.5s var(--ease);
+}
+.board-row:hover {
+  background-color: rgba(226, 197, 139, 0.035);
+}

@@ -9,7 +9,9 @@ const OWNER = "0x00000000000000000000000000000000000000c3";
 const OWNER2 = "0x00000000000000000000000000000000000000d4";
 const cfg = { identity: IDENTITY, pool: POOL, deployBlock: 0n, houseOwner: undefined } as const;
 
-type Log = { address: string; eventName: string; blockNumber: bigint; logIndex: number; args: Record<string, unknown> };
+type Log = {
+  address: string; eventName: string; blockNumber: bigint; logIndex: number; transactionHash?: string; args: Record<string, unknown>;
+};
 
 let seq = 0;
 const idLog = (eventName: string, args: Record<string, unknown>): Log => ({
@@ -122,5 +124,33 @@ describe("indexer", () => {
     expect((await ix.getAgent(1)).item?.owner).toBe(OWNER2);
     expect((await ix.getAgentsByOwner(OWNER2)).items.map((a) => a.id)).toEqual([1]);
     expect((await ix.getAgentsByOwner(OWNER)).items).toEqual([]);
+  });
+  it("getAgentLoans groups Borrowed/Repaid/Defaulted per loan with tx hashes, newest first", async () => {
+    const tx = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
+    const withTx = (l: Log, n: number): Log => ({ ...l, transactionHash: tx(n) });
+    const logs = [
+      reg(1n), reg(2n), opened(1n), opened(2n),
+      withTx(poolLog("Borrowed", { loanId: 1n, agentId: 1n, borrower: OWNER, amount: 5_000_000n, fee: 1667n, dueAt: 86_400n }), 1),
+      withTx(poolLog("Borrowed", { loanId: 2n, agentId: 2n, borrower: OWNER, amount: 9_000_000n, fee: 3000n, dueAt: 90_000n }), 2),
+      withTx(poolLog("Repaid", { loanId: 1n, agentId: 1n, payer: OWNER2, amount: 5_000_000n, fee: 1667n }), 3),
+      withTx(poolLog("Borrowed", { loanId: 3n, agentId: 1n, borrower: OWNER, amount: 7_000_000n, fee: 2000n, dueAt: 200_000n }), 4),
+      withTx(poolLog("Defaulted", { loanId: 2n, agentId: 2n, burnedShares: 1n }), 5),
+    ];
+    const ix = createIndexer(cfg, mockClient(logs));
+    const a1 = await ix.getAgentLoans(1);
+    expect(a1.ok).toBe(true);
+    expect(a1.items.map((l) => [l.loanId, l.status])).toEqual([[3, "open"], [1, "repaid"]]);
+    const l1 = a1.items[1];
+    expect(l1).toMatchObject({ agentId: 1, principal: 5_000_000n, fee: 1667n, dueAt: 86_400, borrowTx: tx(1), closeTx: tx(3) });
+    expect(a1.items[0].closeTx).toBeNull();
+    const a2 = await ix.getAgentLoans(2);
+    expect(a2.items).toHaveLength(1);
+    expect(a2.items[0]).toMatchObject({ loanId: 2, status: "defaulted", principal: 9_000_000n, borrowTx: tx(2), closeTx: tx(5) });
+    expect((await ix.getAgentLoans(99)).items).toEqual([]);
+  });
+
+  it("getAgentLoans returns ok:false when the chain is unreadable", async () => {
+    const ix = createIndexer({ identity: undefined, pool: undefined, deployBlock: 0n }, {} as PublicClient);
+    expect(await ix.getAgentLoans(1)).toEqual({ ok: false, items: [] });
   });
 });

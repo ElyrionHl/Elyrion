@@ -23,3 +23,8 @@ export function makePublicClient() {
 export function explorerAddressUrl(address: string): string {
   return `${ELYSIUM_EXPLORER}/address/${address}`;
 }
+
+/** Explorer page for a transaction. */
+export function explorerTxUrl(hash: string): string {
+  return `${ELYSIUM_EXPLORER}/tx/${hash}`;
+}
