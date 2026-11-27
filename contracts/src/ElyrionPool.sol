@@ -8,10 +8,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IAgentRegistry} from "./interfaces/IAgentRegistry.sol";
+import {ElyScore} from "./libraries/ElyScore.sol";
 
 /// @title ElyrionPool
 /// @notice USDC credit pool for ERC-8004-style AI agents. Lenders deposit USDC for internal (non-ERC-20) shares.
-///         Backers (Task 3) lock shares to open credit lines for agents.
+///         Backers lock shares to open credit lines for agents; a default burns the backer's locked shares first.
 /// @dev Unaudited. Hard caps are constants; mutable limits start at the caps and can only be tightened.
 ///      Accounting identity: totalAssets = balance + outstandingPrincipal - reserve - unclaimedSponsorFees.
 ///      There is no path that moves lender or backer funds to the owner; the owner can only take `reserve`.
@@ -67,6 +68,55 @@ contract ElyrionPool is Ownable2Step, ReentrancyGuard {
     /// @notice Net principal deposited per wallet (for the per-wallet cap).
     mapping(address => uint256) public depositedOf;
 
+    // ------------------------------------------------------------------ credit lines & loans
+
+    /// @notice One credit line per agent, backed by `lockedShares` of the backer's pool shares.
+    struct Line {
+        address backer;
+        uint256 amount;
+        uint256 lockedShares;
+    }
+
+    enum LoanStatus {
+        Open,
+        Repaid,
+        Defaulted
+    }
+
+    struct Loan {
+        uint256 agentId;
+        address borrower;
+        uint256 principal;
+        uint256 fee;
+        uint256 start;
+        uint256 term;
+        uint256 dueAt;
+        LoanStatus status;
+    }
+
+    /// @notice Per-agent repayment history (feeds `ElyScore`).
+    struct Stats {
+        uint256 repaidCount;
+        uint256 dollarSecondsRepaid;
+        uint256 qualifiedRepaid;
+        uint256 firstRepaidAt;
+        bool defaulted;
+    }
+
+    /// @notice Loans held at least this long count as qualified repayments.
+    uint256 public constant QUALIFY_HOLD = 3 days;
+
+    mapping(uint256 => uint256) public pendingRequest;
+    mapping(uint256 => Line) public lines;
+    mapping(uint256 => Stats) public stats;
+    /// @notice Open loan id per agent; 0 when none (loan ids start at 1).
+    mapping(uint256 => uint256) public openLoanOf;
+    /// @notice Claimable backer share of repaid fees.
+    mapping(address => uint256) public sponsorFees;
+    /// @notice Number of loans ever created; also the id of the latest loan.
+    uint256 public loanCount;
+    mapping(uint256 => Loan) internal _loans;
+
     // ------------------------------------------------------------------ errors
 
     error Paused();
@@ -85,6 +135,8 @@ contract ElyrionPool is Ownable2Step, ReentrancyGuard {
     error LoanClosed();
     error NotGuardian();
     error ZeroAddress();
+    error NoLine();
+    error RenounceDisabled();
 
     // ------------------------------------------------------------------ events
 
@@ -97,6 +149,20 @@ contract ElyrionPool is Ownable2Step, ReentrancyGuard {
     event MaxTotalDepositsSet(uint256 value);
     event MaxPerWalletSet(uint256 value);
     event ReserveWithdrawn(address indexed to, uint256 amount);
+    event LineRequested(uint256 indexed agentId, address indexed owner, uint256 amount);
+    event LineOpened(uint256 indexed agentId, address indexed backer, uint256 amount, uint256 lockedShares);
+    event LineClosed(uint256 indexed agentId);
+    event Borrowed(
+        uint256 indexed loanId,
+        uint256 indexed agentId,
+        address indexed borrower,
+        uint256 amount,
+        uint256 fee,
+        uint256 dueAt
+    );
+    event Repaid(uint256 indexed loanId, uint256 indexed agentId, address indexed payer, uint256 amount, uint256 fee);
+    event Defaulted(uint256 indexed loanId, uint256 indexed agentId, uint256 burnedShares);
+    event FeesClaimed(address indexed backer, uint256 amount);
 
     // ------------------------------------------------------------------ modifiers
 
@@ -158,6 +224,209 @@ contract ElyrionPool is Ownable2Step, ReentrancyGuard {
 
         usdc.safeTransfer(msg.sender, assets);
         emit Withdrawn(msg.sender, assets, shares);
+    }
+
+    // ------------------------------------------------------------------ credit lines
+
+    /// @notice Agent owner asks for a credit line of `amount`. Re-requesting overwrites a pending request.
+    function requestLine(uint256 agentId, uint256 amount) external {
+        address agentOwner = registry.ownerOf(agentId);
+        if (msg.sender != agentOwner) revert NotAgentOwner();
+        if (stats[agentId].defaulted) revert AgentDefaulted();
+        if (lines[agentId].backer != address(0)) revert LineActive();
+        if (amount == 0 || amount > maxLoan) revert BadAmount();
+        pendingRequest[agentId] = amount;
+        emit LineRequested(agentId, agentOwner, amount);
+    }
+
+    /// @notice Any lender backs an agent's pending request by locking `convertToSharesUp(amount)` of its free shares.
+    ///         Locked shares cannot be withdrawn and are burned first if the agent defaults. Pausable.
+    function openLine(uint256 agentId, uint256 amount) external nonReentrant whenNotPaused {
+        if (stats[agentId].defaulted) revert AgentDefaulted();
+        if (lines[agentId].backer != address(0)) revert LineActive();
+        uint256 requested = pendingRequest[agentId];
+        if (requested == 0) revert NoPendingRequest();
+        if (amount == 0 || amount > requested || amount > maxLoan) revert BadAmount();
+
+        uint256 lock = convertToSharesUp(amount);
+        if (lock > sharesOf[msg.sender] - lockedSharesOf[msg.sender]) revert BadAmount();
+
+        lockedSharesOf[msg.sender] += lock;
+        lines[agentId] = Line({backer: msg.sender, amount: amount, lockedShares: lock});
+        delete pendingRequest[agentId];
+        emit LineOpened(agentId, msg.sender, amount, lock);
+    }
+
+    /// @notice Backer or current agent owner closes a line with no open loan, unlocking the backer's shares.
+    function closeLine(uint256 agentId) external nonReentrant {
+        Line memory line = lines[agentId];
+        if (line.backer == address(0)) revert NoLine();
+        if (msg.sender != line.backer && msg.sender != registry.ownerOf(agentId)) revert NotBacker();
+        if (openLoanOf[agentId] != 0) revert OpenLoan();
+        lockedSharesOf[line.backer] -= line.lockedShares;
+        delete lines[agentId];
+        emit LineClosed(agentId);
+    }
+
+    // ------------------------------------------------------------------ loans
+
+    /// @notice Current agent owner borrows against the agent's line. One open loan per agent. Pausable.
+    /// @dev Fee = ceil(amount * FEE_BPS * term / (30 days * 10_000)), fixed at borrow time.
+    function borrow(uint256 agentId, uint256 amount, uint256 term)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (uint256 loanId)
+    {
+        if (msg.sender != registry.ownerOf(agentId)) revert NotAgentOwner();
+        if (stats[agentId].defaulted) revert AgentDefaulted();
+        if (openLoanOf[agentId] != 0) revert OpenLoan();
+        uint256 limit = Math.min(maxLoan, lines[agentId].amount);
+        if (amount < MIN_LOAN || amount > limit) revert BadAmount();
+        if (term < MIN_TERM || term > MAX_TERM) revert BadTerm();
+        if (outstandingPrincipal + amount > maxOutstanding) revert CapExceeded();
+        if (idleLiquidity() < amount) revert InsufficientLiquidity();
+
+        uint256 fee = Math.mulDiv(amount, FEE_BPS * term, 30 days * 10_000, Math.Rounding.Ceil);
+        uint256 dueAt = block.timestamp + term;
+        loanId = ++loanCount;
+        _loans[loanId] = Loan({
+            agentId: agentId,
+            borrower: msg.sender,
+            principal: amount,
+            fee: fee,
+            start: block.timestamp,
+            term: term,
+            dueAt: dueAt,
+            status: LoanStatus.Open
+        });
+        openLoanOf[agentId] = loanId;
+        outstandingPrincipal += amount;
+
+        usdc.safeTransfer(msg.sender, amount);
+        emit Borrowed(loanId, agentId, msg.sender, amount, fee, dueAt);
+    }
+
+    /// @notice Anyone repays principal + fee of an open loan. Never pausable; allowed past due until marked default.
+    /// @dev Fee split: backer and reserve get floor(fee * 25%) each, lenders keep the rest (it stays in totalAssets).
+    ///      Reserve and sponsor fees are only ever credited here, from USDC this call receives.
+    function repay(uint256 loanId) external nonReentrant {
+        Loan storage loan = _loans[loanId];
+        if (loan.principal == 0 || loan.status != LoanStatus.Open) revert LoanClosed();
+        uint256 agentId = loan.agentId;
+        uint256 principal = loan.principal;
+        uint256 fee = loan.fee;
+
+        loan.status = LoanStatus.Repaid;
+        delete openLoanOf[agentId];
+        outstandingPrincipal -= principal;
+
+        // A line cannot be closed or replaced while its loan is open, so this is the backer at borrow time.
+        address backer = lines[agentId].backer;
+        uint256 backerCut = fee * BACKER_CUT_BPS / 10_000;
+        uint256 reserveCut = fee * RESERVE_CUT_BPS / 10_000;
+        sponsorFees[backer] += backerCut;
+        unclaimedSponsorFees += backerCut;
+        reserve += reserveCut;
+
+        Stats storage st = stats[agentId];
+        uint256 held = block.timestamp - loan.start;
+        st.repaidCount++;
+        st.dollarSecondsRepaid += principal * Math.min(held, loan.term);
+        if (held >= QUALIFY_HOLD) st.qualifiedRepaid++;
+        if (st.firstRepaidAt == 0) st.firstRepaidAt = block.timestamp;
+
+        usdc.safeTransferFrom(msg.sender, address(this), principal + fee);
+        emit Repaid(loanId, agentId, msg.sender, principal, fee);
+    }
+
+    /// @notice Anyone marks an unpaid loan defaulted once `dueAt + GRACE` has passed. Never pausable.
+    /// @dev Burns min(locked, convertToSharesUp(principal + fee)) of the backer's locked shares, priced BEFORE the
+    ///      principal is written off, so the share price (and every other lender's convertToAssets) cannot fall.
+    ///      The line's locked shares were worth >= line.amount >= principal at open and the price never falls,
+    ///      so the cap at `locked` still covers the principal.
+    function markDefault(uint256 loanId) external nonReentrant {
+        Loan storage loan = _loans[loanId];
+        if (loan.principal == 0 || loan.status != LoanStatus.Open) revert LoanClosed();
+        if (block.timestamp <= loan.dueAt + GRACE) revert NotDue();
+        uint256 agentId = loan.agentId;
+        uint256 principal = loan.principal;
+        Line memory line = lines[agentId];
+
+        uint256 burn = Math.min(line.lockedShares, convertToSharesUp(principal + loan.fee));
+        sharesOf[line.backer] -= burn;
+        lockedSharesOf[line.backer] -= line.lockedShares; // burned part + unlocked rest
+        totalShares -= burn;
+
+        outstandingPrincipal -= principal;
+        loan.status = LoanStatus.Defaulted;
+        delete openLoanOf[agentId];
+        delete lines[agentId];
+        stats[agentId].defaulted = true;
+
+        emit LineClosed(agentId);
+        emit Defaulted(loanId, agentId, burn);
+    }
+
+    /// @notice Backer claims its accrued share of repaid fees. Never pausable.
+    function claimSponsorFees() external nonReentrant returns (uint256 amount) {
+        amount = sponsorFees[msg.sender];
+        if (amount == 0) revert BadAmount();
+        sponsorFees[msg.sender] = 0;
+        unclaimedSponsorFees -= amount;
+        usdc.safeTransfer(msg.sender, amount);
+        emit FeesClaimed(msg.sender, amount);
+    }
+
+    // ------------------------------------------------------------------ credit views
+
+    /// @notice Agent credit report. `dollarDays` is whole USDC-days repaid (uncapped; the score caps it at 400).
+    ///         `lineAmount`/`backer` are 0 when there is no active line; `openLoanId` is 0 when there is no open loan.
+    function creditReport(uint256 agentId)
+        external
+        view
+        returns (
+            uint256 score,
+            uint256 repaidCount,
+            uint256 qualifiedRepaid,
+            uint256 dollarDays,
+            uint256 lineAmount,
+            address backer,
+            uint256 firstRepaidAt,
+            bool defaulted,
+            uint256 openLoanId
+        )
+    {
+        Stats memory st = stats[agentId];
+        Line memory line = lines[agentId];
+        score = ElyScore.score(
+            ElyScore.Inputs({
+                defaulted: st.defaulted,
+                dollarSecondsRepaid: st.dollarSecondsRepaid,
+                qualifiedRepaid: st.qualifiedRepaid,
+                lineAmount: line.amount,
+                firstRepaidAt: st.firstRepaidAt,
+                nowTs: block.timestamp
+            })
+        );
+        repaidCount = st.repaidCount;
+        qualifiedRepaid = st.qualifiedRepaid;
+        dollarDays = st.dollarSecondsRepaid / 1 days / 1e6;
+        lineAmount = line.amount;
+        backer = line.backer;
+        firstRepaidAt = st.firstRepaidAt;
+        defaulted = st.defaulted;
+        openLoanId = openLoanOf[agentId];
+    }
+
+    /// @notice Loan by id (ids start at 1; an unknown id returns a zeroed struct).
+    function getLoan(uint256 loanId) external view returns (Loan memory) {
+        return _loans[loanId];
+    }
+
+    /// @notice Treasury's pool position in USDC, including shares locked behind lines.
+    function treasuryDeposited() external view returns (uint256) {
+        return convertToAssets(sharesOf[treasury]);
     }
 
     // ------------------------------------------------------------------ views
@@ -238,6 +507,11 @@ contract ElyrionPool is Ownable2Step, ReentrancyGuard {
         if (newValue > maxPerWallet) revert OnlyTighten();
         maxPerWallet = newValue;
         emit MaxPerWalletSet(newValue);
+    }
+
+    /// @notice Disabled: an ownerless pool would strand `reserve` and freeze the caps forever.
+    function renounceOwnership() public pure override {
+        revert RenounceDisabled();
     }
 
     /// @notice Owner takes protocol reserve only; can never exceed `reserve`.

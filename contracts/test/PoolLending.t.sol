@@ -388,9 +388,57 @@ contract PoolLendingTest is Test {
         assertEq(pool.convertToSharesUp(0), 0);
     }
 
-    // ---------------------------------------------------------------- filled in Task 3
+    // ---------------------------------------------------------------- lent-out liquidity
 
+    /// Review Focus 4. Every loan is covered by backer shares locked at >= its principal, so the free shares of
+    /// all holders are always worth <= idle USDC and an honest lent-out pool can always pay free shares. The
+    /// `InsufficientLiquidity` guard therefore only fires after an external USDC shortfall, simulated here with
+    /// `deal` (e.g. a token-level freeze). It must revert, never pay out less, and never lock the lender out.
     function test_withdrawRevertsWhenLentOut() public {
-        vm.skip(true); // needs borrow (Task 3)
+        address agentOwner = address(0xDA7E);
+        vm.prank(agentOwner);
+        uint256 agentId = registry.register("ipfs://agent");
+
+        _deposit(alice, 50e6);
+        uint256 bobShares = _deposit(bob, 50e6);
+        vm.prank(agentOwner);
+        pool.requestLine(agentId, 50e6);
+        vm.prank(alice);
+        pool.openLine(agentId, 50e6); // all of alice's shares locked
+        vm.prank(agentOwner);
+        uint256 loanId = pool.borrow(agentId, 50e6, 7 days);
+        assertEq(pool.idleLiquidity(), 50e6);
+        assertEq(pool.outstandingPrincipal(), 50e6);
+
+        // honest lent-out pool: bob's free shares are fully liquid
+        assertEq(pool.convertToAssets(bobShares), 50e6);
+
+        // external shortfall: half of the idle USDC disappears
+        deal(address(usdc), address(pool), 25e6);
+        assertEq(pool.idleLiquidity(), 25e6);
+        uint256 owed = pool.convertToAssets(bobShares);
+        assertGt(owed, pool.idleLiquidity());
+
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(ElyrionPool.InsufficientLiquidity.selector));
+        pool.withdraw(bobShares);
+        assertEq(pool.sharesOf(bob), bobShares); // nothing burned
+        assertEq(usdc.balanceOf(bob), 0); // nothing partially paid
+
+        // bob can still take what is idle, and the rest once the loan is repaid
+        uint256 part = pool.convertToShares(25e6);
+        vm.prank(bob);
+        uint256 got = pool.withdraw(part);
+        assertLe(got, 25e6);
+        assertGt(got, 25e6 - 2);
+
+        ElyrionPool.Loan memory l = pool.getLoan(loanId);
+        _fund(agentOwner, l.principal + l.fee);
+        vm.prank(agentOwner);
+        pool.repay(loanId);
+        uint256 rest = pool.sharesOf(bob);
+        vm.prank(bob);
+        pool.withdraw(rest);
+        assertEq(pool.sharesOf(bob), 0);
     }
 }
